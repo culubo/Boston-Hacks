@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Getting Started with Create React App
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
@@ -68,3 +69,11 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+=======
+# Boston-Hacks
+## Repo for whatever project I decide to do for Boston Hacks 
+
+Intelligent Blocking Agent to protect private security when presenting via mirroring, Zoom, OBS, and other streaming services. 
+
+
+>>>>>>> 0fb5872917f3600ff2d5db7fcfa5ac0d6a1456c7
