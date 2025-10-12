@@ -332,15 +332,16 @@ class LiveScreenBlocker:
             font=('Arial', 18, 'bold')
         ).pack(pady=20)
         
-        # Canvas for live screen - much bigger (60% of window)
+        # Canvas for live screen - dynamically sized to container
         self.canvas = tk.Canvas(
             left_panel,
-            width=1200,  # Much bigger - 60% of 2000px
-            height=900,  # Much bigger - 60% of 1400px
             bg='black',
             highlightthickness=0
         )
-        self.canvas.pack(pady=20, padx=20)
+        self.canvas.pack(fill=tk.BOTH, expand=True, pady=20, padx=20)
+        
+        # Bind resize event to update canvas
+        self.canvas.bind('<Configure>', self.on_canvas_resize)
         
         # Right panel - Detection log (40% of window)
         right_panel = tk.Frame(content_frame, bg='#2a2a2a', relief=tk.RAISED, bd=2)
@@ -393,6 +394,15 @@ class LiveScreenBlocker:
         else:
             self.mask_button.config(text="Enable Masking", bg='#4CAF50')
             self.log_message("Masking disabled", "INFO")
+    
+    def on_canvas_resize(self, event):
+        """Handle canvas resize events"""
+        # Force a redraw when canvas is resized
+        if hasattr(self, 'canvas') and self.canvas.winfo_width() > 1 and self.canvas.winfo_height() > 1:
+            # Get current frame and redraw
+            frame = self.screen_capture.get_current_frame()
+            if frame is not None:
+                self.update_screen_display(frame)
     
     def start_protection(self):
         """Start live protection"""
@@ -456,12 +466,18 @@ class LiveScreenBlocker:
     def update_screen_display(self, frame):
         """Update the live screen display with masking and improved quality"""
         try:
-            # Resize frame to fit canvas - much bigger canvas (60% of window)
-            height, width = frame.shape[:2]
-            canvas_width = 1200  # 60% of 2000px window
-            canvas_height = 900  # 60% of 1400px window
+            # Get actual canvas dimensions dynamically
+            canvas_width = self.canvas.winfo_width()
+            canvas_height = self.canvas.winfo_height()
             
-            # Calculate scaling to maintain aspect ratio
+            # Skip if canvas not ready yet
+            if canvas_width <= 1 or canvas_height <= 1:
+                return
+            
+            # Get frame dimensions
+            height, width = frame.shape[:2]
+            
+            # Calculate scaling to maintain aspect ratio and fit container
             scale = min(canvas_width/width, canvas_height/height)
             new_width = int(width * scale)
             new_height = int(height * scale)
@@ -497,7 +513,7 @@ class LiveScreenBlocker:
             final_image = pil_image.resize((canvas_width, canvas_height), Image.LANCZOS)
             photo = ImageTk.PhotoImage(final_image)
             
-            # Update canvas
+            # Update canvas - center the image
             self.canvas.delete("all")
             self.canvas.create_image(canvas_width//2, canvas_height//2, image=photo)
             self.canvas.image = photo  # Keep reference
