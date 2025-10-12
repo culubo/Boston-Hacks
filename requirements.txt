@@ -1,0 +1,17 @@
+# Screen Privacy Blocker - Python Dependencies
+
+# Core Dependencies
+opencv-python==4.12.0.88
+Pillow==11.3.0
+pytesseract==0.3.13
+numpy==2.2.6
+websockets==15.0.1
+
+# ML Model Dependencies
+pandas>=2.0.0
+scikit-learn>=1.3.0
+joblib>=1.3.0
+
+# Optional but recommended
+packaging>=25.0
+
