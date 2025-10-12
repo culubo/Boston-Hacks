@@ -64,16 +64,23 @@ export default function Home() {
           {/* beige sub-bar under the blue top bar containing controls */}
           <div className="card-subbar">
             <button
-              className="block-screen-btn"
-              onClick={(e) => {
-                e.preventDefault()
-                // placeholder: wire to actual blocking logic later
-                console.log('Block my screen clicked')
-                // TODO: implement screen-blocking behavior (overlay/modal) when requested
-              }}
-            >
-              Block
-            </button>
+            className="block-screen-btn"
+            onClick={async (e) => {
+              e.preventDefault();
+              try {
+                const res = await fetch("http://localhost:5000/block", { method: "POST" });
+                const data = await res.json();
+                console.log("Backend started:", data);
+                alert("Screen blocking started!");
+              } catch (err) {
+                console.error("Error:", err);
+                alert("Failed to start screen blocking.");
+              }
+            }}
+          >
+            Block
+          </button>
+
           </div>
           <PasswordBlocker />
         </div>
