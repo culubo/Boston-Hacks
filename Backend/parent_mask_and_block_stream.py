@@ -5,6 +5,10 @@ import os, sys, json, time, signal, argparse, subprocess, pickle, threading
 from typing import List, Dict, Any, Optional, Tuple
 import importlib.util
 
+# OBS client (for reading Display Capture transform/crop)
+import obsws_python as obs
+from obsws_python.error import OBSSDKRequestError
+
 # ----------------- Model utils -----------------
 
 def load_model(pkl_path: str):
@@ -16,7 +20,6 @@ def ensure_features_module(features_path: str):
     Load a standalone features.py (or point directly to the file) as module 'features'
     so unpickling can import it. Safe to call multiple times.
     """
-    # If a directory is passed, append features.py
     if os.path.isdir(features_path):
         candidate = os.path.join(features_path, "features.py")
     else:
@@ -25,7 +28,6 @@ def ensure_features_module(features_path: str):
     if not os.path.exists(candidate):
         raise FileNotFoundError(f"features.py not found at: {candidate}")
 
-    # Already loaded?
     if "features" in sys.modules:
         return
 
@@ -62,9 +64,11 @@ def predict_sensitive_map(model, words: List[str], prob_threshold: float = 0.5) 
                 for w, y in zip(order, preds):
                     results[w] = str(y).strip().lower() in {"1","true","yes","positive","pos","sensitive"}
             except Exception:
-                for w in order: results[w] = False
+                for w in order:
+                    results[w] = False
         else:
-            for w in order: results[w] = False
+            for w in order:
+                results[w] = False
     return [results[w] for w in words]
 
 def max_xy_from_items(items: List[Dict[str,Any]]) -> Tuple[int,int]:
@@ -78,12 +82,12 @@ def max_xy_from_items(items: List[Dict[str,Any]]) -> Tuple[int,int]:
         if y2 > my: my = y2
     return int(mx), int(my)
 
-# ----------------- OBS child (your script) -----------------
+# ----------------- OBS child (overlay) process -----------------
 
 class OBSStdinProcess:
     def __init__(self, script_path: str, host: str, port: int, password: str,
                  scene: Optional[str], canvas_w: int, canvas_h: int,
-                 overlay_prefix="MASK", max_boxes=50, fps=90, extra_args=None):
+                 overlay_prefix="MASK", max_boxes: int = 50, fps: int = 90, extra_args=None):
         self.script_path = script_path
         self.host = host; self.port = port; self.password = password
         self.scene = scene; self.canvas_w = canvas_w; self.canvas_h = canvas_h
@@ -110,7 +114,8 @@ class OBSStdinProcess:
     def _drain_stderr(self):
         if not self.proc or not self.proc.stderr: return
         for line in self.proc.stderr:
-            sys.stderr.write(f"[obs-mask] {line}"); sys.stderr.flush()
+            sys.stderr.write(f"[obs-mask] {line}")
+            sys.stderr.flush()
 
     def send_boxes(self, boxes):
         if not self.proc or not self.proc.stdin: return
@@ -126,8 +131,10 @@ class OBSStdinProcess:
         if not self.proc: return
         try:
             self.proc.terminate()
-            try: self.proc.wait(timeout=2.0)
-            except subprocess.TimeoutExpired: self.proc.kill()
+            try:
+                self.proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
         except Exception:
             pass
 
@@ -152,7 +159,8 @@ class FastScreenOCRServer:
     def _drain_stderr(self):
         if not self.proc or not self.proc.stderr: return
         for line in self.proc.stderr:
-            sys.stderr.write(f"[ocr] {line}"); sys.stderr.flush()
+            sys.stderr.write(f"[ocr] {line}")
+            sys.stderr.flush()
 
     def capture_once(self, timeout: float = 2.5) -> Optional[List[Dict[str,Any]]]:
         if not self.proc or not self.proc.stdin or not self.proc.stdout:
@@ -162,7 +170,6 @@ class FastScreenOCRServer:
                 self.proc.stdin.write("CAPTURE\n"); self.proc.stdin.flush()
             except BrokenPipeError:
                 return None
-        # Read one JSON line (compact)
         start = time.perf_counter()
         buff = ""
         while True:
@@ -176,7 +183,7 @@ class FastScreenOCRServer:
             if time.perf_counter() - start > timeout:
                 return None
         try:
-            return json.loads(buff)  # Expect list of items
+            return json.loads(buff)
         except Exception:
             return None
 
@@ -189,10 +196,54 @@ class FastScreenOCRServer:
                 except Exception:
                     pass
             self.proc.terminate()
-            try: self.proc.wait(timeout=2.0)
-            except subprocess.TimeoutExpired: self.proc.kill()
+            try:
+                self.proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
         except Exception:
             pass
+
+# ----------------- OBS transform mapping -----------------
+
+def _obs_item_name(it):
+    if isinstance(it, dict):
+        return it.get("sourceName") or it.get("inputName") or it.get("source_name")
+    return getattr(it, "source_name", None)
+
+def _obs_item_id(it):
+    if isinstance(it, dict):
+        return it.get("sceneItemId") or it.get("scene_item_id")
+    return getattr(it, "scene_item_id", None)
+
+def get_obs_source_mapping(cl, scene_name: str, source_name: str):
+    """
+    Returns (offsetX, offsetY, scaleX, scaleY) in canvas pixels per source pixel,
+    adjusted for crop so that:
+        canvasX = offsetX + x * scaleX
+        canvasY = offsetY + y * scaleY
+    """
+    items = cl.get_scene_item_list(scene_name).scene_items
+    scene_item_id = None
+    for it in items:
+        if _obs_item_name(it) == source_name:
+            scene_item_id = _obs_item_id(it)
+            break
+    if scene_item_id is None:
+        raise RuntimeError(f"OBS: source '{source_name}' not found in scene '{scene_name}'")
+
+    tr = cl.get_scene_item_transform(scene_name, scene_item_id).scene_item_transform
+    posX = float(tr.get("positionX", 0.0))
+    posY = float(tr.get("positionY", 0.0))
+    scaleX = float(tr.get("scaleX", 1.0))
+    scaleY = float(tr.get("scaleY", 1.0))
+
+    crop = tr.get("crop", {}) or {}
+    crop_left  = float(crop.get("left", 0.0))
+    crop_top   = float(crop.get("top", 0.0))
+
+    offsetX = posX - crop_left * scaleX
+    offsetY = posY - crop_top  * scaleY
+    return offsetX, offsetY, scaleX, scaleY
 
 # ----------------- Orchestration -----------------
 
@@ -213,16 +264,36 @@ def run_parent_stream(
     max_boxes: int=50,
     overlay_prefix="MASK",
     langs_env: Optional[str]="en-US",
+    reference_scene_name: Optional[str]=None,
+    reference_source_name: Optional[str]=None,
 ):
-
+    # Load model (features module must be importable before this)
     model = load_model(model_path)
 
+    # Start overlay process (takes JSON boxes on stdin)
     obs_proc = OBSStdinProcess(obs_script_path, obs_host, obs_port, obs_password,
                                scene, canvas_w, canvas_h,
                                overlay_prefix=overlay_prefix,
                                max_boxes=max_boxes, fps=max(1,fps))
     obs_proc.start()
 
+    # Parent connects to OBS to read transform/crop of the Display Capture
+    mapping = None
+    try:
+        cl = obs.ReqClient(host=obs_host, port=obs_port, password=obs_password, timeout=3)
+        ref_scene = reference_scene_name or scene
+        if not ref_scene:
+            try:
+                ref_scene = cl.get_current_program_scene().current_program_scene_name
+            except Exception:
+                ref_scene = None
+        if ref_scene and reference_source_name:
+            mapping = get_obs_source_mapping(cl, ref_scene, reference_source_name)
+    except Exception as e:
+        sys.stderr.write(f"[parent] OBS mapping unavailable: {e}\n")
+        mapping = None
+
+    # Warm OCR server
     ocr = FastScreenOCRServer(fastscreenocr_path, langs_env=langs_env)
     ocr.start()
 
@@ -239,34 +310,52 @@ def run_parent_stream(
     while True:
         t0 = time.perf_counter()
         items = ocr.capture_once()
-        if items is None:
-            sys.stderr.write("[parent] OCR server returned no data; attempting to continue...\n")
-            boxes_to_block = []
-        else:
+        boxes_to_block = []
+
+        if items:
+            # Estimate capture size once if not provided (fallback path)
             if not last_wh:
                 est = max_xy_from_items(items)
                 if est[0] > 0 and est[1] > 0:
                     last_wh = est
-            cap_w = display_w or (last_wh[0] if last_wh else canvas_w)
-            cap_h = display_h or (last_wh[1] if last_wh else canvas_h)
 
-            sx = float(canvas_w)/float(cap_w)
-            sy = float(canvas_h)/float(cap_h)
-
+            # Extract words and raw boxes from OCR output
             words, raw_boxes = [], []
             for it in items:
                 w = it.get("word"); tl = it.get("top_left"); br = it.get("bottom_right")
-                if not w or not isinstance(tl, list) or not isinstance(br, list): continue
+                if not w or not isinstance(tl, list) or not isinstance(br, list):
+                    continue
                 words.append(w)
                 raw_boxes.append((float(tl[0]), float(tl[1]), float(br[0]), float(br[1])))
 
+            # Classify sensitive words
             flags = predict_sensitive_map(model, words, prob_threshold=prob_threshold)
-            boxes_to_block = []
-            for flag, (x1,y1,x2,y2) in zip(flags, raw_boxes):
-                if flag:
-                    boxes_to_block.append((x1*sx, y1*sy, x2*sx, y2*sy))
+
+            if mapping:
+                # Use OBS transform mapping (exact)
+                offx, offy, msx, msy = mapping
+                for flag, (x1,y1,x2,y2) in zip(flags, raw_boxes):
+                    if flag:
+                        boxes_to_block.append((
+                            offx + x1 * msx,
+                            offy + y1 * msy,
+                            offx + x2 * msx,
+                            offy + y2 * msy
+                        ))
+            else:
+                # Fallback: uniform scaling to canvas
+                cap_w = display_w or (last_wh[0] if last_wh else canvas_w)
+                cap_h = display_h or (last_wh[1] if last_wh else canvas_h)
+                sx = float(canvas_w)/float(cap_w)
+                sy = float(canvas_h)/float(cap_h)
+                for flag, (x1,y1,x2,y2) in zip(flags, raw_boxes):
+                    if flag:
+                        boxes_to_block.append((x1*sx, y1*sy, x2*sx, y2*sy))
+
             if len(boxes_to_block) > max_boxes:
                 boxes_to_block = boxes_to_block[:max_boxes]
+        else:
+            sys.stderr.write("[parent] OCR server returned no data; continuing...\n")
 
         obs_proc.send_boxes(boxes_to_block)
 
@@ -293,10 +382,17 @@ def main():
     ap.add_argument("--max-boxes", type=int, default=50)
     ap.add_argument("--overlay-prefix", default="MASK")
     ap.add_argument("--langs", default="en-US", help="FASTSCREENOCR_LANGS value")
-    ap.add_argument("--features-path",default="/Users/mwatk/Documents/Boston-Hacks/Backend/ML_Model",help="Directory or file path to features.py")
+    ap.add_argument("--features-path", default="/Users/mwatk/Documents/Boston-Hacks/Backend/ML_Model",
+                    help="Directory or file path to features.py")
+    ap.add_argument("--reference-scene", default=None,
+                    help="Scene containing the Display Capture (defaults to --scene or Program scene)")
+    ap.add_argument("--reference-source", default=None,
+                    help="Name of the Display Capture source in OBS to map from")
     args = ap.parse_args()
 
+    # Ensure features module is importable BEFORE unpickling
     ensure_features_module(args.features_path)
+
     run_parent_stream(
         fastscreenocr_path=args.fastscreenocr,
         model_path=args.model_pkl,
@@ -314,6 +410,8 @@ def main():
         max_boxes=args.max_boxes,
         overlay_prefix=args.overlay_prefix,
         langs_env=args.langs,
+        reference_scene_name=args.reference_scene,
+        reference_source_name=args.reference_source,
     )
 
 if __name__ == "__main__":

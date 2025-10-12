@@ -50,25 +50,19 @@ class OBSMasks:
 
     def _get_program_scene(self) -> str:
         resp = self.cl.get_current_program_scene()
-        # obsws-python maps fields to snake_case
         return resp.current_program_scene_name
 
     def _get_scene_items(self):
-        # Always return a fresh list of scene items (SDK may return objects or dicts)
         return self.cl.get_scene_item_list(self.scene).scene_items
 
     def _list_items_map(self):
-        """Return {name: sceneItemId} for current scene."""
         return {
             self._item_name(it): self._item_id(it)
             for it in self._get_scene_items()
             if self._item_name(it) is not None and self._item_id(it) is not None
         }
 
-
     def _move_to_top(self, scene_item_id: int):
-        # Find the current highest index and place this item above it,
-        # but never exceed OBS's maximum index (8191).
         items = self._get_scene_items()
         max_idx = -1
         for it in items:
@@ -87,18 +81,15 @@ class OBSMasks:
         if isinstance(it, dict):
             return it.get("sceneItemId") or it.get("scene_item_id")
         return getattr(it, "scene_item_id", None)
-        
+
     def _item_index(self, it):
         if isinstance(it, dict):
             return it.get("sceneItemIndex") or it.get("scene_item_index")
         return getattr(it, "scene_item_index", None)
 
-
     def _create_color_source(self, name: str, w: int = 10, h: int = 10):
-        # Try modern then legacy color source kinds
         for kind in ("color_source_v3", "color_source"):
             try:
-                # create_input(sceneName, inputName, inputKind, inputSettings, sceneItemEnabled=False)
                 self.cl.create_input(
                     self.scene,
                     name,
@@ -106,53 +97,44 @@ class OBSMasks:
                     {
                         "width": int(max(1, w)),
                         "height": int(max(1, h)),
-                        "color": 0xFF000000,  # opaque black (RGBA)
+                        "color": 0xFF000000,  # opaque black
                     },
                     False,
                 )
                 return True
             except OBSSDKRequestError:
                 continue
-        raise RuntimeError("Failed to create Color Source (tried color_source_v3 and color_source)")
+        raise RuntimeError("Failed to create Color Source")
 
     def _ensure_pool(self, n: int):
-        """Ensure we have exactly n color sources reserved for masks, named f'{prefix}_{i}'."""
         existing = self._list_items_map()
+        pool_names = [name for name in existing.keys()
+                      if name.startswith(f"{self.prefix}_") and name != self.panic_name]
+        pool_names.sort()
 
-        # Collect current pool members (strictly by prefix_)
-        pool_names = [name for name in existing.keys() if name.startswith(f"{self.prefix}_") and  name != self.panic_name]
-        pool_names.sort()  # stable ordering
-
-        # Create more if needed
         i = 0
         while len(pool_names) < n:
-            # find next unused name in sequence
             while f"{self.prefix}_{i}" in existing:
                 i += 1
             name = f"{self.prefix}_{i}"
-            self._create_color_source(name, 10, 10)  # tiny; will be resized per box
-            existing = self._list_items_map()        # refresh IDs after creation
+            self._create_color_source(name, 10, 10)
+            existing = self._list_items_map()
             pool_names.append(name)
             i += 1
 
-        # Record the pool and push to top, keep them initially disabled
         self.mask_names = pool_names[:n]
         self.mask_ids = [existing[name] for name in self.mask_names]
         for sid in self.mask_ids:
             self._move_to_top(sid)
             self.cl.set_scene_item_enabled(self.scene, sid, False)
 
-
     def _ensure_panic(self):
         existing = self._list_items_map()
-
         if self.panic_name not in existing:
             self._create_color_source(self.panic_name, self.canvas_w, self.canvas_h)
             existing = self._list_items_map()
-
         self.panic_id = existing[self.panic_name]
         self._move_to_top(self.panic_id)
-        # Make sure panic starts disabled
         self.cl.set_scene_item_enabled(self.scene, self.panic_id, False)
 
     def apply_boxes(self, boxes: List[Box]):
@@ -163,31 +145,25 @@ class OBSMasks:
             sid = self.mask_ids[i]
             if i < len(boxes) and boxes[i].width > 0 and boxes[i].height > 0:
                 b = boxes[i]
-
-                # set_input_settings(inputName, inputSettings, overlay=True)
                 self.cl.set_input_settings(
                     name,
                     {
                         "width": int(b.width),
                         "height": int(b.height),
-                        "color": 0xFF000000,  # opaque black
+                        "color": 0xFF000000,
                     },
                     True,
                 )
-
-                # set_scene_item_transform(sceneName, sceneItemId, sceneItemTransform)
                 self.cl.set_scene_item_transform(
                     self.scene,
                     sid,
                     {
                         "positionX": float(b.x1),
                         "positionY": float(b.y1),
-                        "alignment": 5,
+                        "alignment": 1,  # top-left
                         "boundsType": "OBS_BOUNDS_NONE",
                     },
                 )
-
-                # set_scene_item_enabled(sceneName, sceneItemId, sceneItemEnabled)
                 self.cl.set_scene_item_enabled(self.scene, sid, True)
             else:
                 self.cl.set_scene_item_enabled(self.scene, sid, False)
@@ -195,23 +171,18 @@ class OBSMasks:
     def set_panic(self, on: bool):
         if self.panic_id is None:
             return
-
         if on:
-            # Hide all individual masks while PANIC is up
             for sid in self.mask_ids:
                 self.cl.set_scene_item_enabled(self.scene, sid, False)
-
-        # set_input_settings(inputName, inputSettings, overlay=True)
         self.cl.set_input_settings(
             self.panic_name,
             {
                 "width": int(self.canvas_w),
                 "height": int(self.canvas_h),
-                "color": 0xFF000000,  # opaque black
+                "color": 0xFF000000,
             },
             True,
         )
-
         self.cl.set_scene_item_enabled(self.scene, self.panic_id, bool(on))
 
 class FrameFeed:
@@ -375,9 +346,8 @@ def main():
         while True:
             if not panic_state["on"]:
                 boxes = feed.snapshot()
-                if boxes:                  # <-- only apply if non-empty
+                if boxes:
                     overlay.apply_boxes(boxes)
-                # else: do nothing; don't force-hide masks
             time.sleep(frame_interval)
     except KeyboardInterrupt:
         feed.stop()
