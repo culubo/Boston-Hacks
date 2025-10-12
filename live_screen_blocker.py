@@ -156,8 +156,8 @@ class SecurityDetector:
             pattern_detections = self.pattern_detector.detect_patterns(full_text)
             
             for detection in pattern_detections:
-                # Only include high-confidence detections to reduce false positives
-                if detection['confidence'] >= 0.9:
+                # Only include confident detections to reduce false positives
+                if detection['confidence'] >= 0.85:
                     pattern_name = detection.get('pattern_name', 'unknown')
                     severity = self.severity_map.get(pattern_name, 'LOW')
                     detected_text = detection['text']
@@ -604,11 +604,15 @@ class LiveScreenBlocker:
             
             # Create a copy to avoid modifying original
             masked_frame = frame.copy()
+            frame_height, frame_width = masked_frame.shape[:2]
+            
+            print(f"Applying {len(recent_detections)} masks to frame of size {frame_width}x{frame_height}")
             
             # For each recent detection, apply a mask at the actual location
-            for detection in recent_detections:
+            for i, detection in enumerate(recent_detections):
                 bbox = detection.get('bbox')
-                if not bbox:
+                if not bbox or len(bbox) != 4:
+                    print(f"  Detection {i}: Invalid bbox {bbox}")
                     continue
                 
                 # Get original bounding box coordinates
@@ -620,37 +624,46 @@ class LiveScreenBlocker:
                 w = int(w_orig * scale)
                 h = int(h_orig * scale)
                 
-                # Add padding for better coverage
-                padding = 5
-                x = max(0, x - padding)
-                y = max(0, y - padding)
-                w = w + (padding * 2)
-                h = h + (padding * 2)
+                print(f"  Detection {i}: Original bbox ({x_orig}, {y_orig}, {w_orig}, {h_orig}) -> Scaled ({x}, {y}, {w}, {h})")
+                
+                # Validate dimensions
+                if w <= 0 or h <= 0:
+                    print(f"  Detection {i}: Invalid dimensions, skipping")
+                    continue
                 
                 # Ensure coordinates are within frame bounds
-                x = max(0, min(x, masked_frame.shape[1] - 1))
-                y = max(0, min(y, masked_frame.shape[0] - 1))
-                w = min(w, masked_frame.shape[1] - x)
-                h = min(h, masked_frame.shape[0] - y)
+                x = max(0, min(x, frame_width - w))
+                y = max(0, min(y, frame_height - h))
                 
-                if w > 0 and h > 0:
+                # Clamp dimensions to fit within frame
+                if x + w > frame_width:
+                    w = frame_width - x
+                if y + h > frame_height:
+                    h = frame_height - y
+                
+                if w > 5 and h > 5:  # Only draw if big enough
+                    print(f"  Detection {i}: Drawing mask at ({x}, {y}, {w}, {h})")
                     # Draw black rectangle mask
                     cv2.rectangle(masked_frame, (x, y), (x + w, y + h), (0, 0, 0), -1)
                     # Add white border
                     cv2.rectangle(masked_frame, (x, y), (x + w, y + h), (255, 255, 255), 2)
                     
                     # Add label above the box if there's space
-                    label = detection['type'][:20]
-                    font_scale = 0.5
+                    label = detection['type'][:15]
+                    font_scale = 0.4
                     thickness = 1
                     label_y = max(y - 5, 15)  # Place above box or at top
-                    cv2.putText(masked_frame, label, (x, label_y), 
+                    cv2.putText(masked_frame, label, (x + 2, label_y), 
                                cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 0, 0), thickness)
+                else:
+                    print(f"  Detection {i}: Too small to draw ({w}x{h})")
             
             return masked_frame
             
         except Exception as e:
             print(f"Masking error: {e}")
+            import traceback
+            traceback.print_exc()
             return frame
     
     def handle_detection(self, detection):
