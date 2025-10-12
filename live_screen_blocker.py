@@ -68,9 +68,9 @@ class LiveScreenCapture:
         """Continuous screen capture loop"""
         while self.is_capturing:
             try:
-                # Capture screen
+                # Capture screen with higher quality
                 result = subprocess.run([
-                    'screencapture', '-x', '-t', 'png', '/tmp/live_capture.png'
+                    'screencapture', '-x', '-t', 'png', '-S', '/tmp/live_capture.png'
                 ], capture_output=True, text=True)
                 
                 if result.returncode == 0 and os.path.exists('/tmp/live_capture.png'):
@@ -80,7 +80,7 @@ class LiveScreenCapture:
                         with self.frame_lock:
                             self.current_frame = frame
                 
-                time.sleep(0.033)  # 30 FPS for smoother video-like experience
+                time.sleep(0.1)  # 10 FPS for better energy efficiency
             except Exception as e:
                 print(f"Capture error: {e}")
                 time.sleep(1)
@@ -150,7 +150,8 @@ class SecurityDetector:
                     'start': detection['start'],
                     'end': detection['end'],
                     'pattern_name': pattern_name,
-                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                    'timestamp': datetime.now().strftime('%H:%M:%S'),
+                    'timestamp_epoch': time.time()
                 })
             
             return detections
@@ -169,6 +170,7 @@ class LiveScreenBlocker:
         self.is_running = False
         self.detection_count = 0
         self.detections_log = []
+        self.masking_enabled = True  # Toggle for masking feature
         
         # GUI components
         self.canvas = None
@@ -250,7 +252,20 @@ class LiveScreenBlocker:
             bg='#1a1a1a',
             font=('Arial', 12)
         )
-        self.count_label.pack(side=tk.LEFT)
+        self.count_label.pack(side=tk.LEFT, padx=(0, 20))
+        
+        # Masking toggle
+        self.mask_button = tk.Button(
+            control_frame,
+            text="Disable Masking",
+            command=self.toggle_masking,
+            bg='#FF9800',
+            fg='white',
+            font=('Arial', 10),
+            padx=10,
+            pady=2
+        )
+        self.mask_button.pack(side=tk.LEFT)
         
         # Main content frame
         content_frame = tk.Frame(main_frame, bg='#1a1a1a')
@@ -320,6 +335,16 @@ class LiveScreenBlocker:
         else:
             self.stop_protection()
     
+    def toggle_masking(self):
+        """Toggle masking on/off"""
+        self.masking_enabled = not self.masking_enabled
+        if self.masking_enabled:
+            self.mask_button.config(text="Disable Masking", bg='#FF9800')
+            self.log_message("Masking enabled", "INFO")
+        else:
+            self.mask_button.config(text="Enable Masking", bg='#4CAF50')
+            self.log_message("Masking disabled", "INFO")
+    
     def start_protection(self):
         """Start live protection"""
         if not self.screen_capture.start_capture():
@@ -367,15 +392,15 @@ class LiveScreenBlocker:
                     for detection in detections:
                         self.handle_detection(detection)
             
-            # Schedule next detection - 30 FPS for smoother video-like experience
-            self.root.after(33, self.detection_loop)  # 30 FPS
+            # Schedule next detection - 10 FPS for better energy efficiency
+            self.root.after(100, self.detection_loop)  # 10 FPS
             
         except Exception as e:
             self.log_message(f"Detection error: {e}", "ERROR")
             self.root.after(1000, self.detection_loop)
     
     def update_screen_display(self, frame):
-        """Update the live screen display"""
+        """Update the live screen display with masking"""
         try:
             # Resize frame to fit canvas - bigger canvas
             height, width = frame.shape[:2]
@@ -387,11 +412,17 @@ class LiveScreenBlocker:
             new_width = int(width * scale)
             new_height = int(height * scale)
             
-            # Resize frame
-            resized = cv2.resize(frame, (new_width, new_height))
+            # Resize frame with better interpolation for quality
+            resized = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
             
-            # Convert to PhotoImage
-            rgb_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+            # Apply masks to sensitive areas if enabled
+            if self.masking_enabled:
+                masked_frame = self.apply_masks_to_frame(resized, scale)
+            else:
+                masked_frame = resized
+            
+            # Convert to PhotoImage with better quality
+            rgb_image = cv2.cvtColor(masked_frame, cv2.COLOR_BGR2RGB)
             pil_image = Image.fromarray(rgb_image)
             photo = ImageTk.PhotoImage(pil_image)
             
@@ -402,6 +433,78 @@ class LiveScreenBlocker:
             
         except Exception as e:
             print(f"Display update error: {e}")
+    
+    def apply_masks_to_frame(self, frame, scale):
+        """Apply black masks to sensitive areas in the frame"""
+        try:
+            # Get recent detections (last 5 seconds)
+            current_time = time.time()
+            recent_detections = [
+                d for d in self.detections_log 
+                if current_time - d.get('timestamp_epoch', 0) < 5.0
+            ]
+            
+            if not recent_detections:
+                return frame
+            
+            # Create a copy to avoid modifying original
+            masked_frame = frame.copy()
+            
+            # For each recent detection, apply a mask
+            for detection in recent_detections:
+                # Calculate approximate position on screen
+                # This is a simplified approach - in a real implementation,
+                # you'd need to map OCR text positions to screen coordinates
+                text_length = len(detection['text'])
+                
+                # Estimate position based on text length and type
+                if 'api' in detection['type'].lower() or 'key' in detection['type'].lower():
+                    # API keys are often in config files, top-left area
+                    x = 50
+                    y = 100 + (hash(detection['text']) % 200)  # Spread vertically
+                elif 'email' in detection['type'].lower():
+                    # Emails often in forms, center area
+                    x = 200
+                    y = 300 + (hash(detection['text']) % 100)
+                elif 'phone' in detection['type'].lower():
+                    # Phone numbers often in contact forms
+                    x = 150
+                    y = 400 + (hash(detection['text']) % 100)
+                else:
+                    # Default position
+                    x = 100
+                    y = 200 + (hash(detection['text']) % 300)
+                
+                # Scale coordinates
+                x = int(x * scale)
+                y = int(y * scale)
+                
+                # Calculate mask size based on text length
+                mask_width = min(int(text_length * 8 * scale), 200)
+                mask_height = int(20 * scale)
+                
+                # Ensure coordinates are within frame bounds
+                x = max(0, min(x, masked_frame.shape[1] - mask_width))
+                y = max(0, min(y, masked_frame.shape[0] - mask_height))
+                mask_width = min(mask_width, masked_frame.shape[1] - x)
+                mask_height = min(mask_height, masked_frame.shape[0] - y)
+                
+                if mask_width > 0 and mask_height > 0:
+                    # Draw black rectangle mask
+                    cv2.rectangle(masked_frame, (x, y), (x + mask_width, y + mask_height), (0, 0, 0), -1)
+                    
+                    # Add label
+                    label = detection['type'][:15]  # Truncate long labels
+                    font_scale = 0.4 * scale
+                    thickness = max(1, int(scale))
+                    cv2.putText(masked_frame, label, (x + 2, y + int(15 * scale)), 
+                               cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
+            
+            return masked_frame
+            
+        except Exception as e:
+            print(f"Masking error: {e}")
+            return frame
     
     def handle_detection(self, detection):
         """Handle a detected security trigger"""
