@@ -1,0 +1,14 @@
+# Project ignore
+# Ignore the sensitive text blocker runtime files (logs, virtual envs inside that folder)
+Backend/text_blocker/
+
+# Node modules and build artifacts for electron app
+electron-app/node_modules/
+electron-app/dist/
+
+# Python virtualenv
+.venv/
+
+# Editor files
+.DS_Store
+.vscode/
