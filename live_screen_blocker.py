@@ -324,24 +324,31 @@ class LiveScreenBlocker:
         left_panel = tk.Frame(content_frame, bg='#2a2a2a', relief=tk.RAISED, bd=2)
         left_panel.grid(row=0, column=0, sticky='nsew', padx=(0, 5))
         
+        # Configure left panel to expand
+        left_panel.grid_rowconfigure(1, weight=1)
+        left_panel.grid_columnconfigure(0, weight=1)
+        
         tk.Label(
             left_panel,
             text="Live Screen Mirror",
             fg='white',
             bg='#2a2a2a',
             font=('Arial', 18, 'bold')
-        ).pack(pady=20)
+        ).grid(row=0, column=0, pady=10)
         
-        # Canvas for live screen - dynamically sized to container
+        # Canvas for live screen - fill entire container
         self.canvas = tk.Canvas(
             left_panel,
             bg='black',
             highlightthickness=0
         )
-        self.canvas.pack(fill=tk.BOTH, expand=True, pady=20, padx=20)
+        self.canvas.grid(row=1, column=0, sticky='nsew', padx=10, pady=(0, 10))
         
         # Bind resize event to update canvas
         self.canvas.bind('<Configure>', self.on_canvas_resize)
+        
+        # Force initial canvas sizing
+        self.root.after(100, self.force_canvas_update)
         
         # Right panel - Detection log (40% of window)
         right_panel = tk.Frame(content_frame, bg='#2a2a2a', relief=tk.RAISED, bd=2)
@@ -398,7 +405,17 @@ class LiveScreenBlocker:
     def on_canvas_resize(self, event):
         """Handle canvas resize events"""
         # Force a redraw when canvas is resized
-        if hasattr(self, 'canvas') and self.canvas.winfo_width() > 1 and self.canvas.winfo_height() > 1:
+        if hasattr(self, 'canvas') and event.width > 1 and event.height > 1:
+            # Get current frame and redraw
+            frame = self.screen_capture.get_current_frame()
+            if frame is not None:
+                self.update_screen_display(frame)
+    
+    def force_canvas_update(self):
+        """Force canvas to update its size and redraw"""
+        if hasattr(self, 'canvas'):
+            # Update the canvas geometry
+            self.canvas.update_idletasks()
             # Get current frame and redraw
             frame = self.screen_capture.get_current_frame()
             if frame is not None:
