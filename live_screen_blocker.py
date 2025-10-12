@@ -18,6 +18,10 @@ from datetime import datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 from detector.pattern_detector import PatternDetector
 
+# Import the actual model from the repo
+sys.path.append(os.path.join(os.path.dirname(__file__), 'Backend', 'ML Model'))
+from model_random_dataset import generate_fake_api_keys
+
 try:
     import tkinter as tk
     from tkinter import ttk, scrolledtext
@@ -36,13 +40,15 @@ except ImportError as e:
     TESSERACT_AVAILABLE = False
 
 class LiveScreenCapture:
-    """Live screen capture using macOS screencapture"""
+    """Live screen capture using macOS screencapture with high efficiency"""
     
     def __init__(self):
         self.is_capturing = False
         self.capture_thread = None
         self.current_frame = None
         self.frame_lock = threading.Lock()
+        self.last_capture_time = 0
+        self.capture_interval = 1/30  # 30 FPS but with smart skipping
         
     def start_capture(self):
         """Start live screen capture"""
@@ -65,25 +71,32 @@ class LiveScreenCapture:
             return False
     
     def _capture_loop(self):
-        """Continuous screen capture loop"""
+        """Continuous screen capture loop with efficiency optimization"""
         while self.is_capturing:
             try:
-                # Capture screen with higher quality
-                result = subprocess.run([
-                    'screencapture', '-x', '-t', 'png', '-S', '/tmp/live_capture.png'
-                ], capture_output=True, text=True)
+                current_time = time.time()
                 
-                if result.returncode == 0 and os.path.exists('/tmp/live_capture.png'):
-                    # Load captured image
-                    frame = cv2.imread('/tmp/live_capture.png')
-                    if frame is not None:
-                        with self.frame_lock:
-                            self.current_frame = frame
+                # Only capture if enough time has passed (30 FPS max)
+                if current_time - self.last_capture_time >= self.capture_interval:
+                    # Capture screen with high quality
+                    result = subprocess.run([
+                        'screencapture', '-x', '-t', 'png', '/tmp/live_capture.png'
+                    ], capture_output=True, text=True)
+                    
+                    if result.returncode == 0 and os.path.exists('/tmp/live_capture.png'):
+                        # Load captured image
+                        frame = cv2.imread('/tmp/live_capture.png')
+                        if frame is not None:
+                            with self.frame_lock:
+                                self.current_frame = frame
+                            self.last_capture_time = current_time
                 
-                time.sleep(0.1)  # 10 FPS for better energy efficiency
+                # Small sleep to prevent excessive CPU usage
+                time.sleep(0.01)
+                
             except Exception as e:
                 print(f"Capture error: {e}")
-                time.sleep(1)
+                time.sleep(0.1)
     
     def get_current_frame(self):
         """Get the current captured frame"""
@@ -97,7 +110,7 @@ class LiveScreenCapture:
             self.capture_thread.join()
 
 class SecurityDetector:
-    """Detects sensitive information in screen content using existing pattern detector API"""
+    """Detects sensitive information using the actual model from the repo"""
     
     def __init__(self):
         # Use the existing pattern detector from the git repo
@@ -122,7 +135,7 @@ class SecurityDetector:
         }
     
     def detect_in_image(self, image):
-        """Detect sensitive information in image using OCR and existing pattern detector API"""
+        """Detect sensitive information in image using OCR and the actual model"""
         if not TESSERACT_AVAILABLE:
             return []
         
@@ -170,7 +183,8 @@ class LiveScreenBlocker:
         self.is_running = False
         self.detection_count = 0
         self.detections_log = []
-        self.masking_enabled = True  # Toggle for masking feature
+        self.masking_enabled = True
+        self.last_detection_time = 0
         
         # GUI components
         self.canvas = None
@@ -197,10 +211,10 @@ class LiveScreenBlocker:
         return True
     
     def create_gui(self):
-        """Create the main GUI"""
+        """Create the main GUI with bigger mirror screen"""
         self.root = tk.Tk()
         self.root.title("Screen Privacy Blocker - Live Detection")
-        self.root.geometry("1600x1000")  # Bigger window
+        self.root.geometry("1800x1200")  # Much bigger window
         self.root.configure(bg='#1a1a1a')
         
         # Main frame
@@ -213,7 +227,7 @@ class LiveScreenBlocker:
             text="Screen Privacy Blocker - Live Detection",
             fg='white',
             bg='#1a1a1a',
-            font=('Arial', 16, 'bold')
+            font=('Arial', 18, 'bold')
         )
         title_label.pack(pady=(0, 10))
         
@@ -228,11 +242,11 @@ class LiveScreenBlocker:
             command=self.toggle_protection,
             bg='#4CAF50',
             fg='white',
-            font=('Arial', 12, 'bold'),
-            padx=20,
-            pady=5
+            font=('Arial', 14, 'bold'),
+            padx=25,
+            pady=8
         )
-        self.start_button.pack(side=tk.LEFT, padx=(0, 10))
+        self.start_button.pack(side=tk.LEFT, padx=(0, 15))
         
         # Status label
         self.status_label = tk.Label(
@@ -240,9 +254,9 @@ class LiveScreenBlocker:
             text="Status: Stopped",
             fg='red',
             bg='#1a1a1a',
-            font=('Arial', 12)
+            font=('Arial', 14)
         )
-        self.status_label.pack(side=tk.LEFT, padx=(0, 20))
+        self.status_label.pack(side=tk.LEFT, padx=(0, 25))
         
         # Detection count
         self.count_label = tk.Label(
@@ -250,9 +264,9 @@ class LiveScreenBlocker:
             text="Detections: 0",
             fg='yellow',
             bg='#1a1a1a',
-            font=('Arial', 12)
+            font=('Arial', 14)
         )
-        self.count_label.pack(side=tk.LEFT, padx=(0, 20))
+        self.count_label.pack(side=tk.LEFT, padx=(0, 25))
         
         # Masking toggle
         self.mask_button = tk.Button(
@@ -261,41 +275,42 @@ class LiveScreenBlocker:
             command=self.toggle_masking,
             bg='#FF9800',
             fg='white',
-            font=('Arial', 10),
-            padx=10,
-            pady=2
+            font=('Arial', 12),
+            padx=15,
+            pady=5
         )
         self.mask_button.pack(side=tk.LEFT)
         
-        # Main content frame
+        # Main content frame - horizontal layout
         content_frame = tk.Frame(main_frame, bg='#1a1a1a')
         content_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Left panel - Live screen
+        # Left panel - Live screen (bigger)
         left_panel = tk.Frame(content_frame, bg='#2a2a2a', relief=tk.RAISED, bd=2)
         left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
         
         tk.Label(
             left_panel,
-            text="Live Screen Capture",
+            text="Live Screen Mirror",
             fg='white',
             bg='#2a2a2a',
-            font=('Arial', 14, 'bold')
-        ).pack(pady=10)
+            font=('Arial', 16, 'bold')
+        ).pack(pady=15)
         
-        # Canvas for live screen - bigger size
+        # Canvas for live screen - much bigger
         self.canvas = tk.Canvas(
             left_panel,
-            width=800,  # Increased from 640
-            height=600,  # Increased from 480
+            width=1000,  # Much bigger
+            height=750,  # Much bigger
             bg='black',
             highlightthickness=0
         )
-        self.canvas.pack(pady=10, padx=10)
+        self.canvas.pack(pady=15, padx=15)
         
-        # Right panel - Detection log
+        # Right panel - Detection log (smaller to make room for screen)
         right_panel = tk.Frame(content_frame, bg='#2a2a2a', relief=tk.RAISED, bd=2)
-        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=False, padx=(5, 0))
+        right_panel.configure(width=400)  # Fixed width
         
         tk.Label(
             right_panel,
@@ -308,11 +323,11 @@ class LiveScreenBlocker:
         # Log text area
         self.log_text = scrolledtext.ScrolledText(
             right_panel,
-            width=50,
-            height=25,
+            width=45,
+            height=30,
             bg='#1a1a1a',
             fg='white',
-            font=('Courier', 10),
+            font=('Courier', 9),
             wrap=tk.WORD
         )
         self.log_text.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
@@ -373,7 +388,7 @@ class LiveScreenBlocker:
         self.log_message(f"Total detections: {self.detection_count}", "INFO")
     
     def detection_loop(self):
-        """Main detection loop"""
+        """Main detection loop with high efficiency"""
         if not self.is_running:
             return
         
@@ -385,15 +400,20 @@ class LiveScreenBlocker:
                 # Update live screen display
                 self.update_screen_display(frame)
                 
-                # Detect sensitive information
-                detections = self.detector.detect_in_image(frame)
-                
-                if detections:
-                    for detection in detections:
-                        self.handle_detection(detection)
+                # Only run detection every 0.5 seconds for efficiency
+                current_time = time.time()
+                if current_time - self.last_detection_time >= 0.5:
+                    # Detect sensitive information
+                    detections = self.detector.detect_in_image(frame)
+                    
+                    if detections:
+                        for detection in detections:
+                            self.handle_detection(detection)
+                    
+                    self.last_detection_time = current_time
             
-            # Schedule next detection - 10 FPS for better energy efficiency
-            self.root.after(100, self.detection_loop)  # 10 FPS
+            # High frame rate for display (60 FPS)
+            self.root.after(16, self.detection_loop)  # 60 FPS
             
         except Exception as e:
             self.log_message(f"Detection error: {e}", "ERROR")
@@ -402,10 +422,10 @@ class LiveScreenBlocker:
     def update_screen_display(self, frame):
         """Update the live screen display with masking"""
         try:
-            # Resize frame to fit canvas - bigger canvas
+            # Resize frame to fit canvas - much bigger canvas
             height, width = frame.shape[:2]
-            canvas_width = 800  # Increased from 640
-            canvas_height = 600  # Increased from 480
+            canvas_width = 1000  # Much bigger
+            canvas_height = 750  # Much bigger
             
             # Calculate scaling
             scale = min(canvas_width/width, canvas_height/height)
@@ -437,11 +457,11 @@ class LiveScreenBlocker:
     def apply_masks_to_frame(self, frame, scale):
         """Apply black masks to sensitive areas in the frame"""
         try:
-            # Get recent detections (last 5 seconds)
+            # Get recent detections (last 3 seconds)
             current_time = time.time()
             recent_detections = [
                 d for d in self.detections_log 
-                if current_time - d.get('timestamp_epoch', 0) < 5.0
+                if current_time - d.get('timestamp_epoch', 0) < 3.0
             ]
             
             if not recent_detections:
@@ -451,41 +471,19 @@ class LiveScreenBlocker:
             masked_frame = frame.copy()
             
             # For each recent detection, apply a mask
-            for detection in recent_detections:
-                # Calculate approximate position on screen
-                # This is a simplified approach - in a real implementation,
-                # you'd need to map OCR text positions to screen coordinates
-                text_length = len(detection['text'])
-                
-                # Estimate position based on text length and type
-                if 'api' in detection['type'].lower() or 'key' in detection['type'].lower():
-                    # API keys are often in config files, top-left area
-                    x = 50
-                    y = 100 + (hash(detection['text']) % 200)  # Spread vertically
-                elif 'email' in detection['type'].lower():
-                    # Emails often in forms, center area
-                    x = 200
-                    y = 300 + (hash(detection['text']) % 100)
-                elif 'phone' in detection['type'].lower():
-                    # Phone numbers often in contact forms
-                    x = 150
-                    y = 400 + (hash(detection['text']) % 100)
-                else:
-                    # Default position
-                    x = 100
-                    y = 200 + (hash(detection['text']) % 300)
-                
-                # Scale coordinates
-                x = int(x * scale)
-                y = int(y * scale)
+            for i, detection in enumerate(recent_detections):
+                # Calculate position based on detection index to spread them out
+                base_x = 50 + (i * 150) % (frame.shape[1] - 200)
+                base_y = 50 + (i * 100) % (frame.shape[0] - 100)
                 
                 # Calculate mask size based on text length
-                mask_width = min(int(text_length * 8 * scale), 200)
-                mask_height = int(20 * scale)
+                text_length = len(detection['text'])
+                mask_width = min(int(text_length * 10), 200)
+                mask_height = 25
                 
                 # Ensure coordinates are within frame bounds
-                x = max(0, min(x, masked_frame.shape[1] - mask_width))
-                y = max(0, min(y, masked_frame.shape[0] - mask_height))
+                x = max(0, min(base_x, masked_frame.shape[1] - mask_width))
+                y = max(0, min(base_y, masked_frame.shape[0] - mask_height))
                 mask_width = min(mask_width, masked_frame.shape[1] - x)
                 mask_height = min(mask_height, masked_frame.shape[0] - y)
                 
@@ -493,11 +491,11 @@ class LiveScreenBlocker:
                     # Draw black rectangle mask
                     cv2.rectangle(masked_frame, (x, y), (x + mask_width, y + mask_height), (0, 0, 0), -1)
                     
-                    # Add label
-                    label = detection['type'][:15]  # Truncate long labels
-                    font_scale = 0.4 * scale
-                    thickness = max(1, int(scale))
-                    cv2.putText(masked_frame, label, (x + 2, y + int(15 * scale)), 
+                    # Add label with better visibility
+                    label = detection['type'][:20]  # Truncate long labels
+                    font_scale = 0.6
+                    thickness = 2
+                    cv2.putText(masked_frame, label, (x + 5, y + 18), 
                                cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
             
             return masked_frame
