@@ -46,10 +46,14 @@ def _load_artifacts(models_dir=MODELS_DIR):
 
     # Prefer unified final model if available
     final_pkl = os.path.join(models_dir, 'final_model.pkl')
+    if not os.path.exists(final_pkl):
+        # Try in parent directory
+        final_pkl = os.path.join(os.path.dirname(models_dir), 'final_model.pkl')
+    
     if os.path.exists(final_pkl):
         final_model = load_pickle(final_pkl)
         thr = {}
-        thr_path = os.path.join(models_dir, 'thresholds.json')
+        thr_path = os.path.join(os.path.dirname(final_pkl), 'thresholds.json')
         if os.path.exists(thr_path):
             try:
                 with open(thr_path, 'r') as f:
