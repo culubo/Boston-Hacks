@@ -78,9 +78,9 @@ class LiveScreenCapture:
                 
                 # Only capture if enough time has passed (30 FPS max)
                 if current_time - self.last_capture_time >= self.capture_interval:
-                    # Capture screen with high quality
+                    # Capture screen with highest quality settings
                     result = subprocess.run([
-                        'screencapture', '-x', '-t', 'png', '/tmp/live_capture.png'
+                        'screencapture', '-x', '-t', 'png', '-S', '/tmp/live_capture.png'
                     ], capture_output=True, text=True)
                     
                     if result.returncode == 0 and os.path.exists('/tmp/live_capture.png'):
@@ -244,7 +244,7 @@ class LiveScreenBlocker:
         """Create the main GUI with bigger mirror screen"""
         self.root = tk.Tk()
         self.root.title("Screen Privacy Blocker - Live Detection")
-        self.root.geometry("1800x1200")  # Much bigger window
+        self.root.geometry("2000x1400")  # Even bigger window
         self.root.configure(bg='#1a1a1a')
         
         # Main frame
@@ -311,36 +311,40 @@ class LiveScreenBlocker:
         )
         self.mask_button.pack(side=tk.LEFT)
         
-        # Main content frame - horizontal layout
+        # Main content frame - horizontal layout with 60/40 split
         content_frame = tk.Frame(main_frame, bg='#1a1a1a')
         content_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Left panel - Live screen (bigger)
+        # Configure grid weights for 60/40 split
+        content_frame.grid_columnconfigure(0, weight=6)  # 60% for screen
+        content_frame.grid_columnconfigure(1, weight=4)  # 40% for log
+        content_frame.grid_rowconfigure(0, weight=1)
+        
+        # Left panel - Live screen (60% of window)
         left_panel = tk.Frame(content_frame, bg='#2a2a2a', relief=tk.RAISED, bd=2)
-        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        left_panel.grid(row=0, column=0, sticky='nsew', padx=(0, 5))
         
         tk.Label(
             left_panel,
             text="Live Screen Mirror",
             fg='white',
             bg='#2a2a2a',
-            font=('Arial', 16, 'bold')
-        ).pack(pady=15)
+            font=('Arial', 18, 'bold')
+        ).pack(pady=20)
         
-        # Canvas for live screen - much bigger
+        # Canvas for live screen - much bigger (60% of window)
         self.canvas = tk.Canvas(
             left_panel,
-            width=1000,  # Much bigger
-            height=750,  # Much bigger
+            width=1200,  # Much bigger - 60% of 2000px
+            height=900,  # Much bigger - 60% of 1400px
             bg='black',
             highlightthickness=0
         )
-        self.canvas.pack(pady=15, padx=15)
+        self.canvas.pack(pady=20, padx=20)
         
-        # Right panel - Detection log (smaller to make room for screen)
+        # Right panel - Detection log (40% of window)
         right_panel = tk.Frame(content_frame, bg='#2a2a2a', relief=tk.RAISED, bd=2)
-        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=False, padx=(5, 0))
-        right_panel.configure(width=400)  # Fixed width
+        right_panel.grid(row=0, column=1, sticky='nsew', padx=(5, 0))
         
         tk.Label(
             right_panel,
@@ -350,14 +354,14 @@ class LiveScreenBlocker:
             font=('Arial', 14, 'bold')
         ).pack(pady=10)
         
-        # Log text area
+        # Log text area - smaller to fit 40% width
         self.log_text = scrolledtext.ScrolledText(
             right_panel,
-            width=45,
-            height=30,
+            width=35,
+            height=35,
             bg='#1a1a1a',
             fg='white',
-            font=('Courier', 9),
+            font=('Courier', 8),
             wrap=tk.WORD
         )
         self.log_text.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
@@ -450,31 +454,48 @@ class LiveScreenBlocker:
             self.root.after(1000, self.detection_loop)
     
     def update_screen_display(self, frame):
-        """Update the live screen display with masking"""
+        """Update the live screen display with masking and improved quality"""
         try:
-            # Resize frame to fit canvas - much bigger canvas
+            # Resize frame to fit canvas - much bigger canvas (60% of window)
             height, width = frame.shape[:2]
-            canvas_width = 1000  # Much bigger
-            canvas_height = 750  # Much bigger
+            canvas_width = 1200  # 60% of 2000px window
+            canvas_height = 900  # 60% of 1400px window
             
-            # Calculate scaling
+            # Calculate scaling to maintain aspect ratio
             scale = min(canvas_width/width, canvas_height/height)
             new_width = int(width * scale)
             new_height = int(height * scale)
             
-            # Resize frame with better interpolation for quality
+            # Resize frame with highest quality interpolation
             resized = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
+            
+            # Apply sharpening filter for better quality
+            kernel = np.array([[-1,-1,-1],
+                             [-1, 9,-1],
+                             [-1,-1,-1]])
+            sharpened = cv2.filter2D(resized, -1, kernel)
+            
+            # Apply slight contrast enhancement
+            lab = cv2.cvtColor(sharpened, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            l = clahe.apply(l)
+            enhanced = cv2.merge([l, a, b])
+            enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
             
             # Apply masks to sensitive areas if enabled
             if self.masking_enabled:
-                masked_frame = self.apply_masks_to_frame(resized, scale)
+                masked_frame = self.apply_masks_to_frame(enhanced, scale)
             else:
-                masked_frame = resized
+                masked_frame = enhanced
             
             # Convert to PhotoImage with better quality
             rgb_image = cv2.cvtColor(masked_frame, cv2.COLOR_BGR2RGB)
             pil_image = Image.fromarray(rgb_image)
-            photo = ImageTk.PhotoImage(pil_image)
+            
+            # Resize PIL image to exact canvas size for crisp display
+            final_image = pil_image.resize((canvas_width, canvas_height), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(final_image)
             
             # Update canvas
             self.canvas.delete("all")
@@ -503,13 +524,13 @@ class LiveScreenBlocker:
             # For each recent detection, apply a mask
             for i, detection in enumerate(recent_detections):
                 # Calculate position based on detection index to spread them out
-                base_x = 50 + (i * 150) % (frame.shape[1] - 200)
-                base_y = 50 + (i * 100) % (frame.shape[0] - 100)
+                base_x = 50 + (i * 200) % (frame.shape[1] - 300)
+                base_y = 50 + (i * 120) % (frame.shape[0] - 150)
                 
-                # Calculate mask size based on text length
+                # Calculate mask size based on text length and canvas size
                 text_length = len(detection['text'])
-                mask_width = min(int(text_length * 10), 200)
-                mask_height = 25
+                mask_width = min(int(text_length * 12), 300)  # Bigger masks for bigger canvas
+                mask_height = 35  # Bigger height for better visibility
                 
                 # Ensure coordinates are within frame bounds
                 x = max(0, min(base_x, masked_frame.shape[1] - mask_width))
@@ -518,14 +539,15 @@ class LiveScreenBlocker:
                 mask_height = min(mask_height, masked_frame.shape[0] - y)
                 
                 if mask_width > 0 and mask_height > 0:
-                    # Draw black rectangle mask
+                    # Draw black rectangle mask with border
                     cv2.rectangle(masked_frame, (x, y), (x + mask_width, y + mask_height), (0, 0, 0), -1)
+                    cv2.rectangle(masked_frame, (x, y), (x + mask_width, y + mask_height), (255, 255, 255), 2)
                     
-                    # Add label with better visibility
-                    label = detection['type'][:20]  # Truncate long labels
-                    font_scale = 0.6
+                    # Add label with better visibility for larger canvas
+                    label = detection['type'][:25]  # Longer labels for bigger canvas
+                    font_scale = 0.8  # Bigger font
                     thickness = 2
-                    cv2.putText(masked_frame, label, (x + 5, y + 18), 
+                    cv2.putText(masked_frame, label, (x + 8, y + 25), 
                                cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
             
             return masked_frame
