@@ -18,9 +18,14 @@ from datetime import datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 from detector.pattern_detector import PatternDetector
 
-# Import the actual ML model from the repo
-sys.path.append(os.path.join(os.path.dirname(__file__), 'Backend', 'ML Model'))
-from predict_one import predict_text, predict_boolean
+# Import the actual ML model from the repo (optional - requires pandas)
+try:
+    sys.path.append(os.path.join(os.path.dirname(__file__), 'Backend', 'ML Model'))
+    from predict_one import predict_text, predict_boolean
+    ML_MODEL_AVAILABLE = True
+except ImportError:
+    print("ML model not available - running with pattern detector only")
+    ML_MODEL_AVAILABLE = False
 
 try:
     import tkinter as tk
@@ -48,7 +53,7 @@ class LiveScreenCapture:
         self.current_frame = None
         self.frame_lock = threading.Lock()
         self.last_capture_time = 0
-        self.capture_interval = 1/30  # 30 FPS but with smart skipping
+        self.capture_interval = 1/60  # 60 FPS for high quality
         
     def start_capture(self):
         """Start live screen capture"""
@@ -76,7 +81,7 @@ class LiveScreenCapture:
             try:
                 current_time = time.time()
                 
-                # Only capture if enough time has passed (30 FPS max)
+                # Only capture if enough time has passed (60 FPS max)
                 if current_time - self.last_capture_time >= self.capture_interval:
                     # Capture screen with highest quality settings
                     result = subprocess.run([
@@ -168,34 +173,35 @@ class SecurityDetector:
                     'source': 'pattern_detector'
                 })
             
-            # 2. Use ML model for additional detection
-            try:
-                # Split text into sentences/words for ML analysis
-                sentences = [s.strip() for s in text.split('.') if s.strip()]
-                
-                for sentence in sentences:
-                    if len(sentence) > 10:  # Only analyze meaningful text
-                        # Use ML model to predict if text is sensitive
-                        ml_result = predict_text(sentence)
-                        
-                        if ml_result['prediction'] == 1 and ml_result['probability'] > 0.7:
-                            # ML model detected sensitive content
-                            detections.append({
-                                'text': sentence[:100] + ('...' if len(sentence) > 100 else ''),
-                                'type': 'ML Detected Sensitive Content',
-                                'confidence': ml_result['probability'],
-                                'severity': 'HIGH',
-                                'start': text.find(sentence),
-                                'end': text.find(sentence) + len(sentence),
-                                'pattern_name': 'ml_detection',
-                                'timestamp': datetime.now().strftime('%H:%M:%S'),
-                                'timestamp_epoch': time.time(),
-                                'source': 'ml_model',
-                                'ml_explanation': ml_result.get('explanation', {})
-                            })
-            except Exception as ml_error:
-                print(f"ML model error: {ml_error}")
-                # Continue with pattern detector results even if ML fails
+            # 2. Use ML model for additional detection (if available)
+            if ML_MODEL_AVAILABLE:
+                try:
+                    # Split text into sentences/words for ML analysis
+                    sentences = [s.strip() for s in text.split('.') if s.strip()]
+                    
+                    for sentence in sentences:
+                        if len(sentence) > 10:  # Only analyze meaningful text
+                            # Use ML model to predict if text is sensitive
+                            ml_result = predict_text(sentence)
+                            
+                            if ml_result['prediction'] == 1 and ml_result['probability'] > 0.7:
+                                # ML model detected sensitive content
+                                detections.append({
+                                    'text': sentence[:100] + ('...' if len(sentence) > 100 else ''),
+                                    'type': 'ML Detected Sensitive Content',
+                                    'confidence': ml_result['probability'],
+                                    'severity': 'HIGH',
+                                    'start': text.find(sentence),
+                                    'end': text.find(sentence) + len(sentence),
+                                    'pattern_name': 'ml_detection',
+                                    'timestamp': datetime.now().strftime('%H:%M:%S'),
+                                    'timestamp_epoch': time.time(),
+                                    'source': 'ml_model',
+                                    'ml_explanation': ml_result.get('explanation', {})
+                                })
+                except Exception as ml_error:
+                    print(f"ML model error: {ml_error}")
+                    # Continue with pattern detector results even if ML fails
             
             return detections
             
@@ -472,9 +478,9 @@ class LiveScreenBlocker:
                 # Update live screen display
                 self.update_screen_display(frame)
                 
-                # Only run detection every 0.5 seconds for efficiency
+                # Only run detection every 0.2 seconds for better responsiveness
                 current_time = time.time()
-                if current_time - self.last_detection_time >= 0.5:
+                if current_time - self.last_detection_time >= 0.2:
                     # Detect sensitive information
                     detections = self.detector.detect_in_image(frame)
                     
@@ -513,19 +519,30 @@ class LiveScreenBlocker:
             # Resize frame with highest quality interpolation
             resized = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
             
-            # Apply gentle sharpening to avoid graininess
-            kernel = np.array([[0,-0.5,0],
-                             [-0.5,3,-0.5],
-                             [0,-0.5,0]])
+            # Apply advanced sharpening filter for better quality
+            kernel = np.array([[-0.5,-1,-0.5],
+                             [-1, 7,-1],
+                             [-0.5,-1,-0.5]])
             sharpened = cv2.filter2D(resized, -1, kernel)
             
-            # Apply gentle contrast enhancement
+            # Apply enhanced contrast and brightness
             lab = cv2.cvtColor(sharpened, cv2.COLOR_BGR2LAB)
             l, a, b = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(8,8))  # Reduced from 2.0
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
             l = clahe.apply(l)
             enhanced = cv2.merge([l, a, b])
             enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+            
+            # Apply additional sharpening for text clarity
+            kernel2 = np.array([[0,-1,0],
+                              [-1,5,-1],
+                              [0,-1,0]])
+            enhanced = cv2.filter2D(enhanced, -1, kernel2)
+            
+            # Apply slight saturation boost for better colors
+            hsv = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HSV)
+            hsv[:,:,1] = hsv[:,:,1] * 1.1  # Increase saturation
+            enhanced = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
             
             # Apply masks to sensitive areas if enabled
             if self.masking_enabled:
@@ -567,26 +584,14 @@ class LiveScreenBlocker:
             
             # For each recent detection, apply a mask
             for i, detection in enumerate(recent_detections):
-                # Use actual detection coordinates if available, otherwise use fallback positioning
-                if 'start' in detection and 'end' in detection:
-                    # Calculate approximate position based on text position in original image
-                    text_start = detection['start']
-                    text_end = detection['end']
-                    text_length = text_end - text_start
-                    
-                    # Map to screen coordinates (rough approximation)
-                    # This is a simplified mapping - in a real implementation you'd need OCR bounding boxes
-                    base_x = max(50, min(200 + (i * 150), frame.shape[1] - 200))
-                    base_y = max(50, min(100 + (i * 80), frame.shape[0] - 100))
-                else:
-                    # Fallback to spread out positioning
-                    base_x = 50 + (i * 200) % (frame.shape[1] - 300)
-                    base_y = 50 + (i * 120) % (frame.shape[0] - 150)
+                # Calculate position based on detection index to spread them out
+                base_x = 50 + (i * 200) % (frame.shape[1] - 300)
+                base_y = 50 + (i * 120) % (frame.shape[0] - 150)
                 
-                # Calculate mask size based on text length
+                # Calculate mask size based on text length and canvas size
                 text_length = len(detection['text'])
-                mask_width = min(int(text_length * 8), 250)  # Reasonable size
-                mask_height = 30  # Standard height
+                mask_width = min(int(text_length * 12), 300)  # Bigger masks for bigger canvas
+                mask_height = 35  # Bigger height for better visibility
                 
                 # Ensure coordinates are within frame bounds
                 x = max(0, min(base_x, masked_frame.shape[1] - mask_width))
