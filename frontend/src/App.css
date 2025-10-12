@@ -1,3 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-lavender: #E6E6FA;
+  --text-mid: #374151;
+  --muted: #6b7280;
+}
+
+body {
+  background-color: var(--bg-lavender);
+  color: var(--text-mid);
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+.footer {
+  width: 100%;
+  text-align: center;
+  padding: 1rem 0;
+  color: var(--muted);
+}
 .App {
   text-align: center;
 }
@@ -20,3 +50,94 @@
 }
 
 /* keyframes removed */
+
+/* Blocked items layout & reveal */
+.blocked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
+  /* keep centered */
+  padding: 0;
+  list-style: none;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.blocked-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  background: var(--bg-lavender);
+  color: var(--text-mid);
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  /* pill */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.blocked-item .item-text {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  overflow: hidden;
+  flex: 1 1 auto;
+  /* allow shrinking/growing */
+  min-width: 0;
+  /* enable text truncation inside flex */
+}
+
+.blocked-item .masked {
+  display: inline-block;
+}
+
+.blocked-item .reveal {
+  display: none;
+  background: #282c34;
+  /* same as App-header gray */
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+}
+
+.blocked-item:hover .masked {
+  display: none;
+}
+
+.blocked-item:hover .reveal {
+  display: inline-block;
+}
+
+.blocked-item button {
+  margin-left: 1rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+
+.delete-btn {
+  margin-left: 1rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.2rem;
+}
+
+.save-btn {
+  background-color: #4B0082; /* dark purple */
+  color: white;
+}
+
+/* Input holder already uses bg white and rounded-full in JSX; add minor styles for small screens */
+.card .flex-1 {
+  width: 100%;
+}
+
+input::-ms-clear,
+input::-ms-reveal {
+  display: none;
+}

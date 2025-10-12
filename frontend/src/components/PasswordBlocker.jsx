@@ -43,28 +43,34 @@ export default function PasswordBlocker() {
       <h1>My Secret Blocker</h1>
       <p>Manage sensitive information you want to block from view.</p>
 
-      <div>
-        <label htmlFor="secretInput">Enter item to block:</label>
-        <input
-          type="text"
-          id="secretInput"
-          value={secretItem}
-          onChange={handleInputChange}
-          placeholder="e.g., API_KEY_123, myPassword"
-        />
-        <button onClick={handleSaveItem}>Save Item</button>
+      <div className="w-full flex items-center mt-2">
+        <label htmlFor="secretInput" className="sr-only">Enter item to block:</label>
+        <div className="flex-1 bg-lavender rounded-lg px-3 py-2 flex items-center gap-2">
+          <input
+            type="text"
+            id="secretInput"
+            value={secretItem}
+            onChange={handleInputChange}
+            placeholder="e.g., API_KEY_123, myPassword"
+            className="flex-1 bg-transparent px-2 py-1 rounded-lg outline-none placeholder-mid-grey"
+          />
+          <button onClick={handleSaveItem} className="save-btn ml-2 px-4 py-1 rounded-lg">Save</button>
+        </div>
       </div>
 
-      <h3>Blocked Items:</h3>
+      <h3 className="mt-4">Blocked Items:</h3>
       {blockedItems.length === 0 ? (
         <p>No items are currently blocked.</p>
       ) : (
-        <ul>
+        <ul className="blocked-list mt-4">
           {blockedItems.map((item, index) => (
-            <li key={index}>
-              {item}
-              <button onClick={() => handleDeleteItem(index)} style={{ marginLeft: '10px' }}>
-                Delete
+            <li key={index} className="blocked-item">
+              <div className="item-text">
+                <span className="masked">••••••••</span>
+                <span className="reveal">{item}</span>
+              </div>
+              <button onClick={() => handleDeleteItem(index)} className="delete-btn" aria-label={`Delete item ${index}`}>
+                🗑️
               </button>
             </li>
           ))}
