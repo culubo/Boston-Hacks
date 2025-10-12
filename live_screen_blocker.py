@@ -149,11 +149,11 @@ class SecurityDetector:
             
             detections = []
             
-            # 1. Use pattern detector for known patterns (with higher confidence threshold)
+            # 1. Use pattern detector for known patterns (balanced confidence threshold)
             pattern_detections = self.pattern_detector.detect_patterns(text)
             for detection in pattern_detections:
-                # Only include high-confidence detections to reduce false positives
-                if detection['confidence'] > 0.8:
+                # Only include confident detections to reduce false positives
+                if detection['confidence'] > 0.6:
                     pattern_name = detection.get('pattern_name', 'unknown')
                     severity = self.severity_map.get(pattern_name, 'LOW')
                     
@@ -447,9 +447,9 @@ class LiveScreenBlocker:
                 # Update live screen display
                 self.update_screen_display(frame)
                 
-                # Only run detection every 0.5 seconds for efficiency
+                # Only run detection every 1 second for efficiency
                 current_time = time.time()
-                if current_time - self.last_detection_time >= 0.5:
+                if current_time - self.last_detection_time >= 1.0:
                     # Detect sensitive information
                     detections = self.detector.detect_in_image(frame)
                     
