@@ -1,25 +1,286 @@
 @tailwind base;
 @tailwind components;
-@tailwind base;
-@tailwind components;
 @tailwind utilities;
 
+/* Import Noto Sans for consistent MS-like sans across platforms */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&display=swap');
+
 :root {
-  --bg-lavender: #E6E6FA;
+  /* Primary light background color (changed from lavender to light blue) */
+  --bg-lavender: #E6F7FF; /* very light blue */
+  --card-blue: rgba(33, 95, 197, 0.95); /* used for outline and badge fill */
+  --card-blue-light: rgb(15, 99, 234); /* lighter edge for top border */
+  --card-blue-edge: rgba(102, 144, 212, 0.55); /* thin top-edge lighter tint */
   --text-mid: #374151;
   --muted: #6b7280;
 }
 
 body {
   background-color: var(--bg-lavender);
+  background-image: url('/images/windows_pixelated.jpg');
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-attachment: fixed;
   color: var(--text-mid);
 }
 
 .card {
   background: rgba(255, 255, 255, 0.95);
-  border-radius: 0.5rem;
-  padding: 1.25rem;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  /* keep all corners as sharp edges */
+  border-radius: 0;
+  /* slightly less padding to make the window slimmer */
+  padding: 1rem;
+  /* slimmer card width for a thinner appearance */
+  width: 100%;
+  max-width: 560px;
+  /* slightly stronger, softer shadow for subtle depth */
+  box-shadow: 0 10px 30px rgba(14, 30, 60, 0.10), 0 2px 6px rgba(0,0,0,0.04);
+}
+
+/* Special styling for the PasswordBlocker card on the homepage */
+.card-secret {
+  border: 2px solid var(--card-blue);
+  /* remove the default top border so we can draw a gradient bar with a pseudo-element */
+  border-top: 0;
+  /* add extra top padding so content doesn't overlap the decorative top bar and sub-bar */
+  /* reduced to account for a thinner sub-bar */
+  padding-top: calc(1.25rem + 12px);
+  /* keep an outer subtle ring that reads like a soft border */
+  box-shadow: 0 8px 30px rgba(90, 123, 175, 0.06), 0 0 0 4px rgba(33,95,197,0.04) inset;
+  position: relative; /* allow absolute children */
+  overflow: visible;
+}
+
+/* Make certain cards draggable when we enable pointer handlers.
+   - cursor: move shows affordance
+   - touch-action: none lets pointer events drive panning on touch devices
+   - transition on transform for a subtle snap when released (disabled while active)
+*/
+.card-secret .card-top-text {
+  cursor: move;
+  touch-action: none; /* allow pointer events to control movement on touch */
+}
+.card-secret .card-top-text:active {
+  cursor: grabbing;
+}
+
+/* Decorative gradient top bar for .card-secret */
+.card-secret::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 30px; /* thickness of the top bar */
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  /* lighter at top and bottom, darker in the middle */
+  background: linear-gradient(180deg,
+    var(--card-blue-light) 0%,
+    var(--card-blue) 50%,
+    var(--card-blue-light) 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+
+  box-shadow: 0 6px 18px rgba(22, 56, 111, 0.08);
+  /* slight top glow to lift the bar visually */
+  filter: drop-shadow(0 2px 6px rgba(59,130,246,0.06));
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* thin lighter top edge above the decorative bar */
+.card-secret::after {
+  content: "";
+  position: absolute;
+  top: 0; /* sits at the very top */
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--card-blue-edge);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  z-index: 4; /* above the ::before gradient */
+  pointer-events: none;
+}
+
+/* Beige sub-bar directly under the blue decorative top bar.
+   It visually separates controls (like the 'Block my screen' button)
+   from the main card body. Positioned below the ::before bar (30px)
+   and the thin top edge (3px) so its top sits at 33px. */
+.card-secret .card-subbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 30px; /* directly under the blue bar + thin edge */
+  height: 15px; /* thinner strip */
+  /* subtle vertical gradient to give a gentle surface depth */
+  background: linear-gradient(180deg, #eee5d4 0%, #F5EBDD 100%);
+  border-bottom: 1px solid rgba(133, 129, 129, 0.09);
+  border-top: 1px solid rgba(133, 129, 129, 0.191);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: 0px;
+  gap: 12px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  z-index: 3; /* sit above card content but below top text */
+}
+
+.card-secret .card-subbar .block-screen-btn {
+  /* make button chrome-less: transparent chrome so it reads like text
+     while keeping spacing and keyboard focus styling */
+  background: transparent;
+  border: none;
+  color: #000000; /* muted slate for thinner appearance */
+  padding: 2px 10px;
+  border-radius: 0;
+  font-weight: 500;
+  font-size: 0.6rem;
+  cursor: pointer;
+  box-shadow: none;
+  transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.card-secret .card-subbar .block-screen-btn:hover {
+  transform: translateY(-1px);
+  /* when chrome-less, slightly darken text on hover */
+  color: #0f172a;
+}
+
+.card-secret .card-subbar .block-screen-btn:active {
+  transform: translateY(0);
+}
+
+/* Remove default browser outline while providing a clear custom focus ring for accessibility */
+.card-secret .card-subbar .block-screen-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(59,130,246,0.12), 0 6px 18px rgba(0,0,0,0.06);
+}
+
+/* Underline only the 'B' in the Block button */
+.block-B {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 1px;
+  text-decoration-color: rgba(0,0,0,0.85);
+}
+
+/* Close button in the top-right of the card's decorative bar */
+.card-top-text {
+  position: absolute;
+  left: 12px; /* nudged slightly left per design request */
+  top: 4px; /* nudged up slightly so the title sits higher in the top bar */
+  color: #fff;
+  font-weight: 700;
+  /* prefer Noto Sans (webfont) for consistent appearance, then MS Sans Serif if available */
+  font-family: 'Noto Sans', "MS Sans Serif", "Microsoft Sans Serif", Arial, Helvetica, sans-serif;
+  z-index: 6; /* above the ::after thin edge and ::before bar */
+  pointer-events: none;
+  font-size: 0.95rem;
+  /* stronger shadow: dark sharp offset + subtle colored glow to the right */
+  text-shadow: 1px 0 0 rgba(0,0,0,0.6), 10px 0 14px rgba(59,130,246,0.12);
+}
+
+/* Close button sits just to the right of the PixelText inside the top bar */
+.card-close-btn {
+  position: absolute;
+  left: calc(100% + 410px);
+  top: 45%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  /* vertical red gradient for a subtle 3D look */
+  background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
+  color: #fff;
+  border: 1px solid rgba(128,128,128,0.18); /* subtle gray border */
+  pointer-events: auto; /* ensure the button is clickable even when parent has pointer-events:none */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 8; /* above bar graphics */
+  border-radius: 2px; /* square corners */
+  line-height: 1; /* keep the × vertically centered */
+  font-size: 14px; /* a bit larger so the × is readable */
+}
+
+.card-close-btn:hover {
+  background: linear-gradient(180deg, #f97373 0%, #b91c1c 100%);
+}
+
+.card-close-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(220,38,38,0.12);
+}
+
+/* Ensure card content sits above the decorative bar */
+.card-secret > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* Text that sits inside the decorative top bar */
+.card-top-text {
+  position: absolute;
+  left: 16px;
+  top: 4px; /* nudged up slightly so the title sits higher in the top bar */
+  color: #fff;
+  font-weight: 700;
+  /* prefer Noto Sans (webfont) for consistent appearance, then MS Sans Serif if available */
+  font-family: 'Noto Sans', "MS Sans Serif", "Microsoft Sans Serif", Arial, Helvetica, sans-serif;
+  z-index: 6; /* above the ::after thin edge and ::before bar */
+  pointer-events: none;
+  font-size: 0.95rem;
+  /* stronger shadow: dark sharp offset + subtle colored glow to the right */
+  text-shadow: 1px 0 0 rgba(0,0,0,0.6), 10px 0 14px rgba(59,130,246,0.12);
+}
+
+/* Pixelated canvas used for the top title. The canvas is rendered at a low internal
+   resolution and scaled up via CSS; image-rendering: pixelated/crisp-edges forces
+   nearest-neighbor sampling so glyphs look blocky. */
+.card-top-pixel {
+  display: inline-block;
+  vertical-align: middle;
+  image-rendering: pixelated;
+  -webkit-image-rendering: pixelated;
+  /* visible size on the page (scale up from the canvas internal resolution) */
+  width: 140px;
+  height: 28px;
+  /* lean on crisp-edges where supported */
+  image-rendering: crisp-edges;
+  /* keep aspect, avoid layout stretching */
+  object-fit: contain;
+}
+
+/* Brand badge that overlaps the card */
+/* badge that will sit on top-left of the card */
+.brand-badge-on-card {
+  position: absolute;
+  top: -12px; /* pull slightly above card */
+  left: 12px; /* align to left edge */
+  background-color: var(--card-blue);
+  color: #fff;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(59,130,246,0.12);
+  transform: translateY(-50%);
+}
+
+/* When the header is near the card, nudge the badge further left to overlap the card's left edge */
+/* (removed an unused empty selector) */
+
+/* Alternate approach: absolutely position badge when layout allows */
+@media (min-width: 640px) {
+  .brand-badge-on-card {
+    left: 16px;
+    top: -14px;
+  }
 }
 
 .footer {
@@ -29,7 +290,16 @@ body {
   color: var(--muted);
 }
 .App {
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* center children horizontally */
   text-align: center;
+  padding-left: 84px; /* nudge App contents slightly left to shift footer and layout */
+}
+
+/* Subtle footer nudge to the left for visual alignment */
+footer.w-full.text-center.py-4.text-sm.text-\[var\(--muted\)\] {
+  transform: translateX(-4px);
 }
 
 /* logo removed */
@@ -61,7 +331,7 @@ body {
   padding: 0;
   list-style: none;
   width: 100%;
-  max-width: 640px;
+  max-width: 500px; /* aligned with card max-width */
   margin: 0 auto;
 }
 
@@ -71,12 +341,14 @@ body {
   justify-content: space-between;
   gap: 0.5rem;
   width: 100%;
-  background: var(--bg-lavender);
+  /* remove the light-blue list background so items sit on the page background */
+  background: transparent;
   color: var(--text-mid);
   padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: 0;
   /* pill */
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  transition: transform 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
 }
 
 .blocked-item .item-text {
@@ -96,11 +368,11 @@ body {
 
 .blocked-item .reveal {
   display: none;
-  background: #282c34;
-  /* same as App-header gray */
-  color: white;
-  padding: 0.25rem 0.75rem;
-  border-radius: 9999px;
+  /* make reveal inline and unobtrusive: no dark background */
+  background: transparent;
+  color: var(--text-mid);
+  padding: 0; /* remove pill padding */
+  border-radius: 0; /* remove pill rounding */
 }
 
 .blocked-item:hover .masked {
@@ -117,24 +389,116 @@ body {
   border: none;
   cursor: pointer;
   font-size: 1.1rem;
+  /* keep the trash emoji or icon visible by inheriting color and normal line height */
+  color: inherit;
+  padding: 6px; /* keep a tappable hit area */
+  line-height: normal;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
 }
 
-.delete-btn {
-  margin-left: 1rem;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font-size: 1.2rem;
+/* Hover highlight: only when the mouse is over the item */
+.blocked-item:hover {
+  background: rgba(15, 99, 234, 0.04); /* very light blue tint */
+  transform: translateY(-4px);
+  box-shadow: 0 10px 24px rgba(15, 99, 234, 0.08);
 }
 
 .save-btn {
-  background-color: #4B0082; /* dark purple */
-  color: white;
+  /* Slightly rounded small square green icon button with a white right-pointing arrow */
+  background: linear-gradient(180deg, #34d399 0%, #16a34a 100%);
+  color: #ffffff;
+  border: none;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  border-radius: 3px; /* slightly rounded */
+  font-weight: 600;
+  width: 22px;
+  height: 21px;
+  margin-left: 16px; /* nudge further right */
+}
+
+.save-btn::after {
+  /* right-pointing arrow drawn with CSS borders */
+  content: "";
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid #ffffff; /* white arrow */
+  display: inline-block;
+}
+
+.save-btn:hover {
+  background: linear-gradient(180deg, #34c37f 0%, #15803d 100%);
+}
+
+.save-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(16,163,127,0.12);
+}
+
+/* Small 'Go' label to the right of the save button */
+.go-label {
+  margin-left: 4px;
+  font-size: 0.9rem;
+  font-weight: 700; /* bold Go */
+  color: rgba(15, 23, 42, 0.8);
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Narrower input variant used on the blocker form */
+.input-short {
+  max-width: 430px; /* cap width */
+  min-width: 120px; /* avoid collapsing on tiny screens */
+  flex: 0 1 430px; /* allow shrink on narrow layouts but prefer 450px */
+  font-size: 0.85rem;
+  padding: 6px 8px; /* match smaller sizing */
 }
 
 /* Input holder already uses bg white and rounded-full in JSX; add minor styles for small screens */
 .card .flex-1 {
   width: 100%;
+}
+
+/* Visually hide the textual label but keep it accessible to screen readers */
+.save-label {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Lighter border for text inputs inside cards, with a subtle focus state */
+.card input[type="text"],
+.card .flex-1 input,
+#secretInput {
+  border: 1px solid rgba(80, 80, 80, 0.22); /* slightly thinner edge */
+  border-radius: 0; /* sharp input corners */
+  transition: border-color 120ms ease, box-shadow 160ms ease;
+  font-size: 0.85rem; /* slightly smaller text */
+  padding: 6px 8px; /* smaller vertical padding to reduce visual height */
+}
+
+.card input[type="text"]:focus,
+.card .flex-1 input:focus,
+#secretInput:focus {
+  outline: none;
+  border-color: rgba(15, 99, 234, 0.22);
+  box-shadow: 0 8px 24px rgba(15, 99, 234, 0.06);
 }
 
 input::-ms-clear,
