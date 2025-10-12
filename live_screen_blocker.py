@@ -141,34 +141,44 @@ class SecurityDetector:
             return []
         
         try:
-            # Convert to PIL Image
-            pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            # Convert to grayscale for better OCR
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             
-            # Extract text using OCR
-            text = pytesseract.image_to_string(pil_image)
+            # Use Tesseract to get bounding box data
+            ocr_data = pytesseract.image_to_data(gray, output_type=pytesseract.Output.DICT)
+            
+            # Build full text for pattern detection
+            full_text = " ".join([text for text in ocr_data['text'] if text.strip()])
             
             detections = []
             
             # 1. Use pattern detector for known patterns (balanced confidence threshold)
-            pattern_detections = self.pattern_detector.detect_patterns(text)
+            pattern_detections = self.pattern_detector.detect_patterns(full_text)
+            
             for detection in pattern_detections:
                 # Only include confident detections to reduce false positives
                 if detection['confidence'] > 0.6:
                     pattern_name = detection.get('pattern_name', 'unknown')
                     severity = self.severity_map.get(pattern_name, 'LOW')
+                    detected_text = detection['text']
                     
-                    detections.append({
-                        'text': detection['text'],
-                        'type': detection['type'],
-                        'confidence': detection['confidence'],
-                        'severity': severity,
-                        'start': detection['start'],
-                        'end': detection['end'],
-                        'pattern_name': pattern_name,
-                        'timestamp': datetime.now().strftime('%H:%M:%S'),
-                        'timestamp_epoch': time.time(),
-                        'source': 'pattern_detector'
-                    })
+                    # Find bounding box for this detected text in OCR data
+                    bbox = self._find_text_bbox(detected_text, ocr_data)
+                    
+                    if bbox:
+                        detections.append({
+                            'text': detected_text,
+                            'type': detection['type'],
+                            'confidence': detection['confidence'],
+                            'severity': severity,
+                            'start': detection['start'],
+                            'end': detection['end'],
+                            'pattern_name': pattern_name,
+                            'timestamp': datetime.now().strftime('%H:%M:%S'),
+                            'timestamp_epoch': time.time(),
+                            'source': 'pattern_detector',
+                            'bbox': bbox  # (x, y, w, h)
+                        })
             
             # 2. ML model disabled to avoid false positives and version warnings
             
@@ -177,6 +187,57 @@ class SecurityDetector:
         except Exception as e:
             print(f"OCR error: {e}")
             return []
+    
+    def _find_text_bbox(self, search_text, ocr_data):
+        """Find bounding box for specific text in OCR data"""
+        try:
+            n_boxes = len(ocr_data['text'])
+            search_text_lower = search_text.lower().strip()
+            
+            # Try to find exact match first
+            for i in range(n_boxes):
+                text = ocr_data['text'][i].strip()
+                if text.lower() == search_text_lower:
+                    x = ocr_data['left'][i]
+                    y = ocr_data['top'][i]
+                    w = ocr_data['width'][i]
+                    h = ocr_data['height'][i]
+                    return (x, y, w, h)
+            
+            # Try to find partial match by checking consecutive words
+            words = search_text.split()
+            if len(words) > 1:
+                for i in range(n_boxes - len(words) + 1):
+                    matched = True
+                    for j, word in enumerate(words):
+                        if ocr_data['text'][i + j].lower() != word.lower():
+                            matched = False
+                            break
+                    
+                    if matched:
+                        # Calculate bounding box that encompasses all words
+                        x_min = ocr_data['left'][i]
+                        y_min = ocr_data['top'][i]
+                        x_max = ocr_data['left'][i + len(words) - 1] + ocr_data['width'][i + len(words) - 1]
+                        y_max = ocr_data['top'][i + len(words) - 1] + ocr_data['height'][i + len(words) - 1]
+                        return (x_min, y_min, x_max - x_min, y_max - y_min)
+            
+            # If no exact match, try fuzzy match (contains)
+            for i in range(n_boxes):
+                text = ocr_data['text'][i].strip()
+                if search_text_lower in text.lower() or text.lower() in search_text_lower:
+                    x = ocr_data['left'][i]
+                    y = ocr_data['top'][i]
+                    w = ocr_data['width'][i]
+                    h = ocr_data['height'][i]
+                    # Add padding for better coverage
+                    return (max(0, x - 5), max(0, y - 5), w + 10, h + 10)
+            
+            return None
+            
+        except Exception as e:
+            print(f"Bbox search error: {e}")
+            return None
 
 class LiveScreenBlocker:
     """Main application with live screen capture and detection"""
@@ -525,13 +586,13 @@ class LiveScreenBlocker:
             print(f"Display update error: {e}")
     
     def apply_masks_to_frame(self, frame, scale):
-        """Apply black masks to sensitive areas in the frame"""
+        """Apply black masks to sensitive areas in the frame using actual bounding boxes"""
         try:
             # Get recent detections (last 3 seconds)
             current_time = time.time()
             recent_detections = [
                 d for d in self.detections_log 
-                if current_time - d.get('timestamp_epoch', 0) < 3.0
+                if current_time - d.get('timestamp_epoch', 0) < 3.0 and 'bbox' in d
             ]
             
             if not recent_detections:
@@ -540,34 +601,47 @@ class LiveScreenBlocker:
             # Create a copy to avoid modifying original
             masked_frame = frame.copy()
             
-            # For each recent detection, apply a mask
-            for i, detection in enumerate(recent_detections):
-                # Calculate position based on detection index to spread them out
-                base_x = 50 + (i * 200) % (frame.shape[1] - 300)
-                base_y = 50 + (i * 120) % (frame.shape[0] - 150)
+            # For each recent detection, apply a mask at the actual location
+            for detection in recent_detections:
+                bbox = detection.get('bbox')
+                if not bbox:
+                    continue
                 
-                # Calculate mask size based on text length and canvas size
-                text_length = len(detection['text'])
-                mask_width = min(int(text_length * 12), 300)  # Bigger masks for bigger canvas
-                mask_height = 35  # Bigger height for better visibility
+                # Get original bounding box coordinates
+                x_orig, y_orig, w_orig, h_orig = bbox
+                
+                # Scale coordinates to match the resized frame
+                x = int(x_orig * scale)
+                y = int(y_orig * scale)
+                w = int(w_orig * scale)
+                h = int(h_orig * scale)
+                
+                # Add padding for better coverage
+                padding = 5
+                x = max(0, x - padding)
+                y = max(0, y - padding)
+                w = w + (padding * 2)
+                h = h + (padding * 2)
                 
                 # Ensure coordinates are within frame bounds
-                x = max(0, min(base_x, masked_frame.shape[1] - mask_width))
-                y = max(0, min(base_y, masked_frame.shape[0] - mask_height))
-                mask_width = min(mask_width, masked_frame.shape[1] - x)
-                mask_height = min(mask_height, masked_frame.shape[0] - y)
+                x = max(0, min(x, masked_frame.shape[1] - 1))
+                y = max(0, min(y, masked_frame.shape[0] - 1))
+                w = min(w, masked_frame.shape[1] - x)
+                h = min(h, masked_frame.shape[0] - y)
                 
-                if mask_width > 0 and mask_height > 0:
-                    # Draw black rectangle mask with border
-                    cv2.rectangle(masked_frame, (x, y), (x + mask_width, y + mask_height), (0, 0, 0), -1)
-                    cv2.rectangle(masked_frame, (x, y), (x + mask_width, y + mask_height), (255, 255, 255), 2)
+                if w > 0 and h > 0:
+                    # Draw black rectangle mask
+                    cv2.rectangle(masked_frame, (x, y), (x + w, y + h), (0, 0, 0), -1)
+                    # Add white border
+                    cv2.rectangle(masked_frame, (x, y), (x + w, y + h), (255, 255, 255), 2)
                     
-                    # Add label with better visibility for larger canvas
-                    label = detection['type'][:25]  # Longer labels for bigger canvas
-                    font_scale = 0.8  # Bigger font
-                    thickness = 2
-                    cv2.putText(masked_frame, label, (x + 8, y + 25), 
-                               cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
+                    # Add label above the box if there's space
+                    label = detection['type'][:20]
+                    font_scale = 0.5
+                    thickness = 1
+                    label_y = max(y - 5, 15)  # Place above box or at top
+                    cv2.putText(masked_frame, label, (x, label_y), 
+                               cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 0, 0), thickness)
             
             return masked_frame
             
