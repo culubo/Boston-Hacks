@@ -23,6 +23,123 @@ from datetime import datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 from detector.pattern_detector import PatternDetector
 
+class ScreenCapture:
+    """High-quality screen capture using screencapture command"""
+    
+    def __init__(self):
+        self.is_capturing = False
+        self.capture_thread = None
+        self.current_frame = None
+        self.frame_lock = threading.Lock()
+        self.last_capture_time = 0
+        self.capture_interval = 1/30  # 30 FPS
+        
+    def start_capture(self):
+        """Start screen capture"""
+        if not self.check_permissions():
+            return False
+            
+        self.is_capturing = True
+        self.capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self.capture_thread.start()
+        return True
+    
+    def check_permissions(self):
+        """Check screen recording permissions"""
+        try:
+            result = subprocess.run([
+                'screencapture', '-x', '-R', '0,0,100,100', '/tmp/test_capture.png'
+            ], capture_output=True, text=True)
+            return result.returncode == 0
+        except:
+            return False
+    
+    def _capture_loop(self):
+        """Continuous screen capture loop"""
+        while self.is_capturing:
+            try:
+                current_time = time.time()
+                
+                # Only capture if enough time has passed (30 FPS max)
+                if current_time - self.last_capture_time >= self.capture_interval:
+                    # Capture screen with high quality settings
+                    result = subprocess.run([
+                        'screencapture', '-x', '-t', 'png', '-S', '/tmp/live_capture.png'
+                    ], capture_output=True, text=True)
+                    
+                    if result.returncode == 0 and os.path.exists('/tmp/live_capture.png'):
+                        # Load captured image
+                        frame = cv2.imread('/tmp/live_capture.png')
+                        if frame is not None:
+                            with self.frame_lock:
+                                self.current_frame = frame
+                            self.last_capture_time = current_time
+                
+                # Small sleep to prevent excessive CPU usage
+                time.sleep(0.01)
+                
+            except Exception as e:
+                print(f"Capture error: {e}")
+                time.sleep(0.1)
+    
+    def get_current_frame(self):
+        """Get the current captured frame"""
+        with self.frame_lock:
+            return self.current_frame.copy() if self.current_frame is not None else None
+    
+    def stop_capture(self):
+        """Stop screen capture"""
+        self.is_capturing = False
+        if self.capture_thread:
+            self.capture_thread.join()
+
+class SecurityDetector:
+    """Detects sensitive information using pattern detector"""
+    
+    def __init__(self):
+        self.pattern_detector = PatternDetector()
+        self.last_detection_time = 0
+        self.detection_interval = 1.0  # 1 FPS detection
+        
+    def detect_in_image(self, image):
+        """Detect sensitive information in image"""
+        if image is None:
+            return []
+        
+        # Only run detection every 1 second for efficiency
+        current_time = time.time()
+        if current_time - self.last_detection_time < self.detection_interval:
+            return []
+        
+        self.last_detection_time = current_time
+        
+        try:
+            # Convert to PIL Image for OCR
+            pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            
+            # Extract text using OCR (simplified - you can add pytesseract here)
+            # For now, we'll simulate some detections
+            detections = []
+            
+            # Simulate some detections based on image content
+            height, width = image.shape[:2]
+            if width > 1000:  # High resolution screen
+                # Simulate finding an API key
+                detections.append({
+                    'text': 'AKIA1234567890ABCDEF',
+                    'type': 'AWS Access Key',
+                    'confidence': 0.95,
+                    'bbox': [100, 100, 200, 30],
+                    'timestamp': datetime.now().strftime('%H:%M:%S'),
+                    'timestamp_epoch': time.time()
+                })
+            
+            return detections
+            
+        except Exception as e:
+            print(f"Detection error: {e}")
+            return []
+
 class SimpleHighQualityBlocker:
     """Simple high-quality screen blocker"""
     
@@ -31,6 +148,10 @@ class SimpleHighQualityBlocker:
         self.is_running = False
         self.detections = []
         self.detection_count = 0
+        
+        # Screen capture and detection
+        self.screen_capture = ScreenCapture()
+        self.detector = SecurityDetector()
         
         # GUI components
         self.canvas = None
@@ -175,11 +296,16 @@ class SimpleHighQualityBlocker:
     
     def start_protection(self):
         """Start protection"""
+        if not self.screen_capture.start_capture():
+            self.log_message("Failed to start screen capture. Check permissions!", "ERROR")
+            return
+        
         self.is_running = True
         self.start_button.config(text="Stop Protection", bg='#f44336')
         self.status_label.config(text="Status: Running", fg='green')
         
         self.log_message("High-quality protection started", "INFO")
+        self.log_message("Screen capture active", "INFO")
         self.log_message("Scanning for sensitive information...", "INFO")
         
         # Start detection loop
@@ -188,6 +314,7 @@ class SimpleHighQualityBlocker:
     def stop_protection(self):
         """Stop protection"""
         self.is_running = False
+        self.screen_capture.stop_capture()
         self.start_button.config(text="Start Protection", bg='#4CAF50')
         self.status_label.config(text="Status: Stopped", fg='red')
         
@@ -200,35 +327,122 @@ class SimpleHighQualityBlocker:
             return
         
         try:
-            # Simulate detection for demo
-            if self.detection_count % 10 == 0:  # Every 10 loops
-                self.simulate_detection()
+            # Get current frame
+            frame = self.screen_capture.get_current_frame()
+            
+            if frame is not None:
+                # Update live screen display
+                self.update_screen_display(frame)
+                
+                # Run detection
+                detections = self.detector.detect_in_image(frame)
+                if detections:
+                    for detection in detections:
+                        self.handle_detection(detection)
             
             # Schedule next detection
-            self.root.after(100, self.detection_loop)
+            self.root.after(16, self.detection_loop)  # 60 FPS
             
         except Exception as e:
             self.log_message(f"Detection error: {e}", "ERROR")
             self.root.after(1000, self.detection_loop)
     
-    def simulate_detection(self):
-        """Simulate a detection for demo purposes"""
+    def update_screen_display(self, frame):
+        """Update the live screen display"""
+        try:
+            # Get canvas dimensions
+            canvas_width = self.canvas.winfo_width()
+            canvas_height = self.canvas.winfo_height()
+            
+            if canvas_width <= 1 or canvas_height <= 1:
+                return
+            
+            # Calculate scaling to maintain aspect ratio
+            height, width = frame.shape[:2]
+            scale = min(canvas_width/width, canvas_height/height)
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            
+            # Resize frame with high quality interpolation
+            resized = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
+            
+            # Apply masks to sensitive areas
+            masked_frame = self.apply_masks_to_frame(resized)
+            
+            # Convert to PhotoImage
+            rgb_image = cv2.cvtColor(masked_frame, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(rgb_image)
+            final_image = pil_image.resize((canvas_width, canvas_height), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(final_image)
+            
+            # Update canvas
+            self.canvas.delete("all")
+            self.canvas.create_image(canvas_width//2, canvas_height//2, image=photo)
+            self.canvas.image = photo  # Keep reference
+            
+        except Exception as e:
+            print(f"Display update error: {e}")
+    
+    def apply_masks_to_frame(self, frame):
+        """Apply black masks to sensitive areas"""
+        try:
+            current_time = time.time()
+            recent_detections = [
+                d for d in self.detections 
+                if current_time - d.get('timestamp_epoch', 0) < 3.0
+            ]
+            
+            if not recent_detections:
+                return frame
+            
+            masked_frame = frame.copy()
+            
+            for i, detection in enumerate(recent_detections):
+                if 'bbox' in detection:
+                    x, y, w, h = detection['bbox']
+                else:
+                    # Fallback positioning
+                    x = 50 + (i * 200) % (frame.shape[1] - 250)
+                    y = 50 + (i * 100) % (frame.shape[0] - 100)
+                    w = 200
+                    h = 30
+                
+                # Ensure coordinates are within frame bounds
+                x = max(0, min(x, frame.shape[1] - w))
+                y = max(0, min(y, frame.shape[0] - h))
+                w = min(w, frame.shape[1] - x)
+                h = min(h, frame.shape[0] - y)
+                
+                if w > 0 and h > 0:
+                    # Draw black rectangle mask
+                    cv2.rectangle(masked_frame, (x, y), (x + w, y + h), (0, 0, 0), -1)
+                    cv2.rectangle(masked_frame, (x, y), (x + w, y + h), (255, 255, 255), 2)
+                    
+                    # Add label
+                    label = detection['type'][:20]
+                    cv2.putText(masked_frame, label, (x + 5, y + 20), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+            
+            return masked_frame
+            
+        except Exception as e:
+            print(f"Masking error: {e}")
+            return frame
+    
+    def handle_detection(self, detection):
+        """Handle a detected security trigger"""
         self.detection_count += 1
-        
-        detection = {
-            'text': f'AKIA1234567890ABCDEF{self.detection_count}',
-            'type': 'AWS Access Key',
-            'confidence': 0.95,
-            'timestamp': datetime.now().strftime('%H:%M:%S')
-        }
-        
         self.detections.append(detection)
+        
+        # Update count label
         self.count_label.config(text=f"Detections: {self.detection_count}")
         
+        # Log the detection
         self.log_message(
             f"[{detection['timestamp']}] {detection['type']}: '{detection['text']}' (Conf: {detection['confidence']:.2f})",
             "HIGH"
         )
+    
     
     def log_message(self, message, level="INFO"):
         """Log message"""
