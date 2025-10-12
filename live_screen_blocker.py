@@ -18,9 +18,9 @@ from datetime import datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 from detector.pattern_detector import PatternDetector
 
-# Import the actual ML model from the repo
-sys.path.append(os.path.join(os.path.dirname(__file__), 'Backend', 'ML Model'))
-from predict_one import predict_text, predict_boolean
+# Disable ML model to avoid false positives and version warnings
+ML_MODEL_AVAILABLE = False
+print("Using pattern detector only for better accuracy")
 
 try:
     import tkinter as tk
@@ -149,53 +149,28 @@ class SecurityDetector:
             
             detections = []
             
-            # 1. Use pattern detector for known patterns
+            # 1. Use pattern detector for known patterns (with higher confidence threshold)
             pattern_detections = self.pattern_detector.detect_patterns(text)
             for detection in pattern_detections:
-                pattern_name = detection.get('pattern_name', 'unknown')
-                severity = self.severity_map.get(pattern_name, 'LOW')
-                
-                detections.append({
-                    'text': detection['text'],
-                    'type': detection['type'],
-                    'confidence': detection['confidence'],
-                    'severity': severity,
-                    'start': detection['start'],
-                    'end': detection['end'],
-                    'pattern_name': pattern_name,
-                    'timestamp': datetime.now().strftime('%H:%M:%S'),
-                    'timestamp_epoch': time.time(),
-                    'source': 'pattern_detector'
-                })
+                # Only include high-confidence detections to reduce false positives
+                if detection['confidence'] > 0.8:
+                    pattern_name = detection.get('pattern_name', 'unknown')
+                    severity = self.severity_map.get(pattern_name, 'LOW')
+                    
+                    detections.append({
+                        'text': detection['text'],
+                        'type': detection['type'],
+                        'confidence': detection['confidence'],
+                        'severity': severity,
+                        'start': detection['start'],
+                        'end': detection['end'],
+                        'pattern_name': pattern_name,
+                        'timestamp': datetime.now().strftime('%H:%M:%S'),
+                        'timestamp_epoch': time.time(),
+                        'source': 'pattern_detector'
+                    })
             
-            # 2. Use ML model for additional detection
-            try:
-                # Split text into sentences/words for ML analysis
-                sentences = [s.strip() for s in text.split('.') if s.strip()]
-                
-                for sentence in sentences:
-                    if len(sentence) > 10:  # Only analyze meaningful text
-                        # Use ML model to predict if text is sensitive
-                        ml_result = predict_text(sentence)
-                        
-                        if ml_result['prediction'] == 1 and ml_result['probability'] > 0.7:
-                            # ML model detected sensitive content
-                            detections.append({
-                                'text': sentence[:100] + ('...' if len(sentence) > 100 else ''),
-                                'type': 'ML Detected Sensitive Content',
-                                'confidence': ml_result['probability'],
-                                'severity': 'HIGH',
-                                'start': text.find(sentence),
-                                'end': text.find(sentence) + len(sentence),
-                                'pattern_name': 'ml_detection',
-                                'timestamp': datetime.now().strftime('%H:%M:%S'),
-                                'timestamp_epoch': time.time(),
-                                'source': 'ml_model',
-                                'ml_explanation': ml_result.get('explanation', {})
-                            })
-            except Exception as ml_error:
-                print(f"ML model error: {ml_error}")
-                # Continue with pattern detector results even if ML fails
+            # 2. ML model disabled to avoid false positives and version warnings
             
             return detections
             
