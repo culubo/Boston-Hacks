@@ -324,25 +324,22 @@ class LiveScreenBlocker:
         left_panel = tk.Frame(content_frame, bg='#2a2a2a', relief=tk.RAISED, bd=2)
         left_panel.grid(row=0, column=0, sticky='nsew', padx=(0, 5))
         
-        # Configure left panel to expand
-        left_panel.grid_rowconfigure(1, weight=1)
-        left_panel.grid_columnconfigure(0, weight=1)
-        
+        # Title at top
         tk.Label(
             left_panel,
             text="Live Screen Mirror",
             fg='white',
             bg='#2a2a2a',
             font=('Arial', 18, 'bold')
-        ).grid(row=0, column=0, pady=10)
+        ).pack(pady=10)
         
-        # Canvas for live screen - fill entire container
+        # Canvas for live screen - use pack to fill remaining space
         self.canvas = tk.Canvas(
             left_panel,
             bg='black',
             highlightthickness=0
         )
-        self.canvas.grid(row=1, column=0, sticky='nsew', padx=10, pady=(0, 10))
+        self.canvas.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
         
         # Bind resize event to update canvas
         self.canvas.bind('<Configure>', self.on_canvas_resize)
@@ -414,8 +411,22 @@ class LiveScreenBlocker:
     def force_canvas_update(self):
         """Force canvas to update its size and redraw"""
         if hasattr(self, 'canvas'):
-            # Update the canvas geometry
+            # Force the canvas to expand
             self.canvas.update_idletasks()
+            self.root.update_idletasks()
+            
+            # Get the actual available space
+            canvas_width = self.canvas.winfo_width()
+            canvas_height = self.canvas.winfo_height()
+            
+            # If canvas is still too small, force it to expand
+            if canvas_width < 100 or canvas_height < 100:
+                # Force parent to update
+                self.canvas.master.update_idletasks()
+                self.canvas.update_idletasks()
+                canvas_width = self.canvas.winfo_width()
+                canvas_height = self.canvas.winfo_height()
+            
             # Get current frame and redraw
             frame = self.screen_capture.get_current_frame()
             if frame is not None:
