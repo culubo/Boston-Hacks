@@ -1,6 +1,6 @@
-# Screen Privacy Blocker
+# ML-Only Screen Privacy Blocker
 
-A macOS application that captures your real screen and masks sensitive information during screen sharing to prevent accidental exposure of API keys, personal data, and confidential information.
+A macOS application that uses machine learning to detect and mask sensitive information during screen sharing. Uses ONLY the ML model from GitHub for detection, preventing accidental exposure of API keys, personal data, and confidential information.
 
 ## Security & Privacy
 
@@ -13,20 +13,20 @@ A macOS application that captures your real screen and masks sensitive informati
 
 ## Features
 
-- Real-time screen capture and analysis
-- Detection of API keys, phone numbers, personal information
-- Multi-language support for text recognition
-- Native macOS overlay system for masking
-- Configurable detection patterns
-- Panic mode for instant full-screen masking
-- Local-only processing (no cloud dependencies)
+- **ML-Only Detection**: Uses machine learning model from GitHub repository
+- **Real-time screen capture**: High-quality 30 FPS capture with OCR text extraction
+- **Accurate masking**: Blockers positioned over actual detected text using OCR coordinates
+- **High-quality video**: Smooth, clear display without graininess
+- **Local-only processing**: No cloud dependencies, all processing on your machine
+- **Clean logging**: Each detection logged only once to avoid spam
+- **OCR-based positioning**: Uses Tesseract for precise text location and masking
 
 ## Quick Start
 
-1. **Install**: Run `./scripts/install.sh`
+1. **Install Dependencies**: `pip3 install --break-system-packages opencv-python Pillow pytesseract pandas scikit-learn`
 2. **Start**: Run `./start_blocker.sh`
 3. **Grant Permissions**: Allow screen recording when prompted
-4. **Protect**: Your screen is now protected during sharing!
+4. **Protect**: Your screen is now protected with ML detection!
 
 ## Installation
 
@@ -34,7 +34,7 @@ A macOS application that captures your real screen and masks sensitive informati
 git clone https://github.com/culubo/Boston-Hacks.git
 cd Boston-Hacks
 git checkout screen-blocker-final
-./scripts/install.sh
+pip3 install --break-system-packages opencv-python Pillow pytesseract pandas scikit-learn
 ```
 
 ## Usage
@@ -48,42 +48,44 @@ git checkout screen-blocker-final
 - Press Ctrl+C to stop protection instantly
 - Restart with `./start_blocker.sh` when ready
 
-## Detection Patterns
+## ML Detection
 
-The system detects:
-- AWS Access Keys (AKIA...)
-- GitHub Tokens (ghp_, gho_, ghs_...)
-- Google API Keys (AIza...)
-- Stripe Keys (sk_test_, sk_live_...)
-- JWT Tokens
-- Credit Card Numbers
-- Phone Numbers
-- Email Addresses
-- Social Security Numbers
-- Bitcoin Addresses
-- Ethereum Addresses
-- High-entropy strings (potential secrets)
+The system uses a machine learning model to detect sensitive content including:
+- API keys and tokens
+- Personal information
+- Financial data
+- Credentials and passwords
+- Confidential business information
+- Any text classified as sensitive by the ML model
+
+**Note**: This version uses ONLY the ML model from the GitHub repository for detection, providing more accurate and comprehensive sensitive content identification.
 
 ## Permissions Required
 
 - **SCREEN RECORDING**: Required to capture screen content for analysis
 - **ACCESSIBILITY**: Required to create overlay windows for masking
 
-## Team Member Integration
+## Technical Details
 
-### Frontend Developer
-Place your UI components in `frontend/` directory. The main app interface should integrate with the detection engine via the provided API endpoints.
+### ML Model Integration
+- Uses `predict_one.py` from the GitHub repository
+- Requires `final_model.pkl`, `thresholds.json`, and `policy.json`
+- Processes text extracted via OCR (Tesseract)
+- Returns confidence scores and detection classifications
 
-### Overlay Developer  
-Place your masking/overlay system in `overlay/` directory. The system expects a WebSocket connection to receive masking coordinates and labels.
+### Architecture
+- **Screen Capture**: High-quality screencapture with 30 FPS
+- **OCR Processing**: Tesseract for text extraction with bounding boxes
+- **ML Detection**: GitHub ML model for sensitive content classification
+- **Masking**: Black rectangles positioned over detected text coordinates
+- **Display**: Tkinter GUI with live screen mirror and detection log
 
-## Development
-
-See individual component READMEs for detailed development instructions:
-- `src/detector/README.md` - Detection engine
-- `macos_app/README.md` - Native macOS application
-- `overlay/README.md` - Masking overlay system
-- `frontend/README.md` - Frontend components
+### Dependencies
+- `opencv-python` - Image processing and video capture
+- `Pillow` - Image manipulation
+- `pytesseract` - OCR text extraction
+- `pandas` - Data processing for ML model
+- `scikit-learn` - Machine learning model support
 
 ## Troubleshooting
 
