@@ -156,11 +156,15 @@ class SecurityDetector:
             pattern_detections = self.pattern_detector.detect_patterns(full_text)
             
             for detection in pattern_detections:
-                # Only include confident detections to reduce false positives
-                if detection['confidence'] > 0.6:
+                # Only include high-confidence detections to reduce false positives
+                if detection['confidence'] >= 0.9:
                     pattern_name = detection.get('pattern_name', 'unknown')
                     severity = self.severity_map.get(pattern_name, 'LOW')
                     detected_text = detection['text']
+                    
+                    # Skip if text is too short (likely false positive)
+                    if len(detected_text.strip()) < 8:
+                        continue
                     
                     # Find bounding box for this detected text in OCR data
                     bbox = self._find_text_bbox(detected_text, ocr_data)
@@ -588,11 +592,11 @@ class LiveScreenBlocker:
     def apply_masks_to_frame(self, frame, scale):
         """Apply black masks to sensitive areas in the frame using actual bounding boxes"""
         try:
-            # Get recent detections (last 3 seconds)
+            # Get recent detections (last 2 seconds)
             current_time = time.time()
             recent_detections = [
                 d for d in self.detections_log 
-                if current_time - d.get('timestamp_epoch', 0) < 3.0 and 'bbox' in d
+                if current_time - d.get('timestamp_epoch', 0) < 2.0 and 'bbox' in d
             ]
             
             if not recent_detections:
@@ -650,7 +654,20 @@ class LiveScreenBlocker:
             return frame
     
     def handle_detection(self, detection):
-        """Handle a detected security trigger"""
+        """Handle a detected security trigger with deduplication"""
+        # Check if this detection already exists in recent logs (last 5 seconds)
+        current_time = time.time()
+        detection_key = f"{detection['text']}_{detection['type']}"
+        
+        # Check for duplicates in recent detections
+        for existing_detection in self.detections_log:
+            if (current_time - existing_detection.get('timestamp_epoch', 0) < 5.0 and
+                f"{existing_detection['text']}_{existing_detection['type']}" == detection_key):
+                # This is a duplicate, skip logging but keep in detections_log for masking
+                self.detections_log.append(detection)
+                return
+        
+        # New unique detection
         self.detection_count += 1
         self.detections_log.append(detection)
         
