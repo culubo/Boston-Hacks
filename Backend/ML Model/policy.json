@@ -1,0 +1,14 @@
+{
+  "ip": {
+    "require_context": true,
+    "downscale_no_context_factor": 0.3,
+    "force_non_sensitive_without_context": true
+  },
+  "bitcoin": {
+    "enable_legacy": true,
+    "legacy_boost": 0.2
+  },
+  "api_key": {
+    "force_sensitive": true
+  }
+}
