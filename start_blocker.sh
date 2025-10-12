@@ -1,6 +1,6 @@
 #!/bin/bash
 cd "$(dirname "$0")"
-echo "Starting macOS High-Quality Screen Privacy Blocker..."
-echo "This will capture your live screen with zero-copy, high-fidelity capture and detect sensitive information in real-time."
-echo "A GUI window will open showing the high-quality live screen and detection log."
-python3 ml_only_capture.py
+echo "Starting Screen Privacy Blocker - Live Detection..."
+echo "This will capture your live screen and detect sensitive information in real-time."
+echo "A GUI window will open showing the live screen and detection log."
+python3 live_screen_blocker.py

@@ -513,16 +513,16 @@ class LiveScreenBlocker:
             # Resize frame with highest quality interpolation
             resized = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
             
-            # Apply gentle sharpening to avoid graininess
-            kernel = np.array([[0,-0.5,0],
-                             [-0.5,3,-0.5],
-                             [0,-0.5,0]])
+            # Apply sharpening filter for better quality
+            kernel = np.array([[-1,-1,-1],
+                             [-1, 9,-1],
+                             [-1,-1,-1]])
             sharpened = cv2.filter2D(resized, -1, kernel)
             
-            # Apply gentle contrast enhancement
+            # Apply slight contrast enhancement
             lab = cv2.cvtColor(sharpened, cv2.COLOR_BGR2LAB)
             l, a, b = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(8,8))  # Reduced from 2.0
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
             l = clahe.apply(l)
             enhanced = cv2.merge([l, a, b])
             enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
@@ -567,26 +567,14 @@ class LiveScreenBlocker:
             
             # For each recent detection, apply a mask
             for i, detection in enumerate(recent_detections):
-                # Use actual detection coordinates if available, otherwise use fallback positioning
-                if 'start' in detection and 'end' in detection:
-                    # Calculate approximate position based on text position in original image
-                    text_start = detection['start']
-                    text_end = detection['end']
-                    text_length = text_end - text_start
-                    
-                    # Map to screen coordinates (rough approximation)
-                    # This is a simplified mapping - in a real implementation you'd need OCR bounding boxes
-                    base_x = max(50, min(200 + (i * 150), frame.shape[1] - 200))
-                    base_y = max(50, min(100 + (i * 80), frame.shape[0] - 100))
-                else:
-                    # Fallback to spread out positioning
-                    base_x = 50 + (i * 200) % (frame.shape[1] - 300)
-                    base_y = 50 + (i * 120) % (frame.shape[0] - 150)
+                # Calculate position based on detection index to spread them out
+                base_x = 50 + (i * 200) % (frame.shape[1] - 300)
+                base_y = 50 + (i * 120) % (frame.shape[0] - 150)
                 
-                # Calculate mask size based on text length
+                # Calculate mask size based on text length and canvas size
                 text_length = len(detection['text'])
-                mask_width = min(int(text_length * 8), 250)  # Reasonable size
-                mask_height = 30  # Standard height
+                mask_width = min(int(text_length * 12), 300)  # Bigger masks for bigger canvas
+                mask_height = 35  # Bigger height for better visibility
                 
                 # Ensure coordinates are within frame bounds
                 x = max(0, min(base_x, masked_frame.shape[1] - mask_width))
