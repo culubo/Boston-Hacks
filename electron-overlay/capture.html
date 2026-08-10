@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Screen Capture</title>
+</head>
+<body>
+  <h2>Screen Capture Active</h2>
+  <p>Sending frames to Python detection server...</p>
+  <p id="status">Connecting...</p>
+  
+  <script>
+    const { desktopCapturer } = require('electron');
+    const WebSocket = require('ws');
+    
+    const statusEl = document.getElementById('status');
+    let ws = null;
+    let stream = null;
+    let video = null;
+    let canvas = null;
+    let ctx = null;
+    
+    async function startCapture() {
+      try {
+        // Get available sources
+        const sources = await desktopCapturer.getSources({ 
+          types: ['screen'],
+          thumbnailSize: { width: 1920, height: 1080 }
+        });
+        
+        if (sources.length === 0) {
+          statusEl.textContent = 'No screen sources found';
+          return;
+        }
+        
+        // Use first screen
+        const source = sources[0];
+        console.log('Using source:', source.name);
+        
+        // Get screen stream
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: source.id,
+              minWidth: 1280,
+              maxWidth: 1920,
+              minHeight: 720,
+              maxHeight: 1080,
+              minFrameRate: 3,
+              maxFrameRate: 6
+            }
+          }
+        });
+        
+        // Setup video element
+        video = document.createElement('video');
+        video.srcObject = stream;
+        video.autoplay = true;
+        await video.play();
+        
+        // Setup canvas for frame capture
+        canvas = document.createElement('canvas');
+        ctx = canvas.getContext('2d');
+        
+        statusEl.textContent = 'Capture active, connecting to server...';
+        
+        // Connect to Python recv_ws.py server
+        connectToServer();
+        
+      } catch (error) {
+        console.error('Capture error:', error);
+        statusEl.textContent = 'Error: ' + error.message;
+      }
+    }
+    
+    function connectToServer() {
+      ws = new WebSocket('ws://127.0.0.1:7777');
+      
+      ws.on('open', () => {
+        console.log('Connected to Python detection server');
+        statusEl.textContent = 'Connected! Sending frames...';
+        captureLoop();
+      });
+      
+      ws.on('error', (error) => {
+        console.error('WebSocket error:', error);
+        statusEl.textContent = 'Connection error';
+      });
+      
+      ws.on('close', () => {
+        console.log('Disconnected, reconnecting in 2s...');
+        statusEl.textContent = 'Disconnected, reconnecting...';
+        setTimeout(connectToServer, 2000);
+      });
+    }
+    
+    function captureLoop() {
+      if (!video || !canvas || !ctx || !ws || ws.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      
+      try {
+        // Set canvas size to video size
+        if (video.videoWidth && video.videoHeight) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          
+          // Draw current frame
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          
+          // Convert to JPEG and send
+          canvas.toBlob((blob) => {
+            if (blob && ws.readyState === WebSocket.OPEN) {
+              ws.send(blob);
+            }
+          }, 'image/jpeg', 0.7);
+        }
+      } catch (error) {
+        console.error('Capture frame error:', error);
+      }
+      
+      // Capture at ~3-6 FPS (every 160-300ms)
+      setTimeout(captureLoop, 200);
+    }
+    
+    // Start capture on load
+    startCapture();
+  </script>
+</body>
+</html>
+

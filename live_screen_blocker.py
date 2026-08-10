@@ -150,20 +150,29 @@ class SecurityDetector:
             # Build full text for pattern detection
             full_text = " ".join([text for text in ocr_data['text'] if text.strip()])
             
+            # Debug: Show what OCR is reading
+            if full_text.strip():
+                print(f"\n[OCR] Read {len(full_text)} chars from screen")
+                print(f"[OCR] First 200 chars: {full_text[:200]}")
+            
             detections = []
             
             # 1. Use pattern detector for known patterns (balanced confidence threshold)
             pattern_detections = self.pattern_detector.detect_patterns(full_text)
+            print(f"[DETECT] Found {len(pattern_detections)} potential patterns")
             
             for detection in pattern_detections:
-                # Only include confident detections to reduce false positives
-                if detection['confidence'] >= 0.85:
+                # Only include confident detections to reduce false positives  
+                print(f"[PATTERN] {detection['type']}: confidence={detection['confidence']:.2f}, text={detection['text'][:50]}")
+                
+                if detection['confidence'] >= 0.7:  # Lowered from 0.85 for testing
                     pattern_name = detection.get('pattern_name', 'unknown')
                     severity = self.severity_map.get(pattern_name, 'LOW')
                     detected_text = detection['text']
                     
                     # Skip if text is too short (likely false positive)
-                    if len(detected_text.strip()) < 8:
+                    if len(detected_text.strip()) < 5:  # Lowered from 8
+                        print(f"[SKIP] Too short: {detected_text}")
                         continue
                     
                     # Find bounding box for this detected text in OCR data

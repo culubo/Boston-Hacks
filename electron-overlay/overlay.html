@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    canvas { 
+      position: fixed; 
+      inset: 0; 
+      pointer-events: none;
+      image-rendering: crisp-edges;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="overlay"></canvas>
+  <script>
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d', { alpha: true });
+    const dpr = window.devicePixelRatio || 1;
+    
+    let masks = [];
+    let panicMode = false;
+    
+    function resize() {
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+      console.log(`Canvas resized: ${canvas.width}x${canvas.height} (dpr=${dpr})`);
+    }
+    
+    window.addEventListener('resize', resize);
+    resize();
+    
+    // Panic mode toggle
+    window.addEventListener('message', (event) => {
+      if (event.data.type === 'panic-toggle') {
+        panicMode = !panicMode;
+        console.log('Panic mode:', panicMode);
+      }
+    });
+    
+    function draw() {
+      const now = Date.now();
+      
+      // Clean up expired masks
+      masks = masks.filter(m => m.expiresAt > now);
+      
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.scale(dpr, dpr);
+      
+      // Draw panic overlay (full screen black)
+      if (panicMode) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+        ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+        ctx.fillStyle = '#ff0000';
+        ctx.font = 'bold 48px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText('PANIC MODE - SCREEN BLOCKED', window.innerWidth / 2, window.innerHeight / 2);
+      }
+      
+      // Draw detection masks
+      for (const mask of masks) {
+        // Draw black rectangle
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(mask.x, mask.y, mask.w, mask.h);
+        
+        // Draw border
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(mask.x, mask.y, mask.w, mask.h);
+        
+        // Draw label
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px system-ui';
+        const label = `${mask.tag || mask.type}${mask.confidence != null ? ' • ' + (mask.confidence * 100).toFixed(0) + '%' : ''}`;
+        const labelY = Math.max(15, mask.y - 4);
+        ctx.fillText(label, mask.x + 6, labelY);
+      }
+      
+      ctx.restore();
+      requestAnimationFrame(draw);
+    }
+    draw();
+    
+    // Connect to Python overlay server
+    console.log('Connecting to overlay server...');
+    const ws = new WebSocket('ws://127.0.0.1:8765');
+    
+    ws.onopen = () => {
+      console.log('Connected to overlay server on ws://127.0.0.1:8765');
+    };
+    
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+    
+    ws.onclose = () => {
+      console.log('Disconnected from overlay server, attempting reconnect in 2s...');
+      setTimeout(() => location.reload(), 2000);
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        console.log('Received message:', msg.type, msg);
+        
+        if (msg.type === 'detection:update' || msg.type === 'masks:update') {
+          const ttl = msg.default_ttl_ms || 3000;
+          const items = msg.masks || msg.detections || [];
+          
+          for (const item of items) {
+            // Convert bounding box to screen coordinates
+            const mask = {
+              x: item.x || item.bbox?.[0] || 0,
+              y: item.y || item.bbox?.[1] || 0,
+              w: item.w || item.bbox?.[2] || 100,
+              h: item.h || item.bbox?.[3] || 30,
+              tag: item.tag || item.type || 'SENSITIVE',
+              confidence: item.confidence,
+              expiresAt: Date.now() + (item.ttl_ms || ttl)
+            };
+            
+            console.log('Adding mask:', mask);
+            masks.push(mask);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to parse message:', error);
+      }
+    };
+  </script>
+</body>
+</html>
+
